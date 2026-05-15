@@ -5,6 +5,8 @@ namespace OpenHdFlightLog.Services;
 
 public sealed class FlightLogDatabase
 {
+    // Optionaler Debug-Hook in Richtung ViewModel. Der Datenbankservice bleibt auch ohne
+    // UI verwendbar, kann aber bei Bedarf jeden wichtigen SQL-/Import-Schritt melden.
     private readonly Action<DebugEventRecord>? debug;
 
     public string DatabasePath { get; }
@@ -12,6 +14,8 @@ public sealed class FlightLogDatabase
     public FlightLogDatabase(Action<DebugEventRecord>? debug = null)
     {
         this.debug = debug;
+        // Die Datenbank liegt absichtlich im Benutzerprofil statt im Projektordner. So
+        // bleiben importierte Logs erhalten, auch wenn die Anwendung neu gebaut wird.
         var appData = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "OpenHdFlightLog");
@@ -22,6 +26,8 @@ public sealed class FlightLogDatabase
 
     public void EnsureSchema()
     {
+        // EnsureSchema ist idempotent: Die Methode darf bei jedem Start laufen. Neue
+        // Tabellen werden angelegt, vorhandene bleiben erhalten.
         using var connection = OpenConnection();
         ExecuteNonQuery(connection, """
             CREATE TABLE IF NOT EXISTS log_files (
@@ -108,6 +114,9 @@ public sealed class FlightLogDatabase
             CREATE INDEX IF NOT EXISTS ix_field_definitions_definition ON field_definitions(definition_id);
             """, "schema");
 
+        // Einfache Migrationen fuer bestehende lokale Datenbanken. SQLite kann Spalten
+        // mit ALTER TABLE ADD COLUMN ergaenzen; existiert die Spalte bereits, wird der
+        // bekannte Fehler abgefangen und nur im Debug-Log notiert.
         TryAddColumn(connection, "message_types", "dialect", "TEXT NOT NULL DEFAULT ''");
         TryAddColumn(connection, "mavlink_messages", "route", "TEXT NOT NULL DEFAULT ''");
         TryAddColumn(connection, "mavlink_messages", "packet_time_ms", "INTEGER NOT NULL DEFAULT 0");
@@ -133,6 +142,9 @@ public sealed class FlightLogDatabase
         Log("IMPORT", $"read file {path}");
         var bytes = await File.ReadAllBytesAsync(path);
         var frames = MavlinkParser.Parse(bytes);
+
+        // Definitionen werden vorab als Dictionary geladen, damit der Import nicht fuer
+        // jedes einzelne Paket erneut message_definitions/field_definitions abfragen muss.
         var definitions = GetFieldDefinitionsByMessageId();
         var packetTimings = OLogDebugSidecar.LoadPacketTimings(path);
         if (packetTimings.Count > 0)
@@ -143,6 +155,8 @@ public sealed class FlightLogDatabase
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
 
+        // Der komplette Import laeuft in einer Transaktion. Entweder werden Log-Datei,
+        // Nachrichten und Felder zusammen geschrieben, oder bei einem Fehler gar nichts.
         var importStarted = DateTimeOffset.Now;
         var logId = InsertLogFile(connection, path, frames.Count, importStarted);
         var writtenFields = 0;
@@ -153,6 +167,9 @@ public sealed class FlightLogDatabase
             var messageId = InsertMessage(connection, logId, messageTypeId, frame, importStarted, timing);
             definitions.TryGetValue(frame.MessageId, out var fieldDefinitions);
 
+            // DynamicMavlinkDecoder nutzt gespeicherte Header-Definitionen. Falls keine
+            // Definition gefunden wird, liefert er ueber den Fallback-Decoder mindestens
+            // bekannte Standardfelder oder payload_hex.
             foreach (var field in DynamicMavlinkDecoder.Decode(frame, fieldDefinitions ?? []))
             {
                 InsertField(connection, messageId, field);
@@ -167,12 +184,16 @@ public sealed class FlightLogDatabase
 
     public int ImportDefinitions(IReadOnlyList<LoadedMavlinkDefinition> definitions)
     {
+        // Definitionen werden als Upsert importiert. Dadurch kann derselbe OpenHD-
+        // Headerstand erneut geladen werden, ohne doppelte message_definitions zu erzeugen.
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
 
         foreach (var definition in definitions)
         {
             var definitionId = UpsertDefinition(connection, definition.Message);
+            // Felddefinitionen werden komplett ersetzt, weil sich Offsets oder Typen
+            // zwischen Header-Versionen aendern koennen.
             DeleteDefinitionFields(connection, definitionId);
             foreach (var field in definition.Fields)
             {
@@ -189,6 +210,8 @@ public sealed class FlightLogDatabase
 
     public IReadOnlyList<LogFileRecord> GetLogs()
     {
+        // Read-Methoden geben einfache Record-Objekte zurueck. Sie halten keine offene
+        // Datenbankverbindung; die UI arbeitet danach nur noch mit den kopierten Werten.
         Log("SQL READ", "SELECT log_files ORDER BY imported_at DESC");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
@@ -308,6 +331,8 @@ public sealed class FlightLogDatabase
         var variables = GetLogVariables(logId);
         var frames = new List<OsdReplayRecord>();
 
+        // Die OSD-Ansicht ist keine eigene Tabelle. Sie wird aus den dekodierten Feldern
+        // gruppiert nach Zeitpunkt berechnet und pickt bekannte OpenHD-Feldnamen heraus.
         foreach (var group in variables.GroupBy(v => new { v.TimeMs, v.Timestamp }).OrderBy(g => g.Key.TimeMs))
         {
             var values = group.ToDictionary(
@@ -567,6 +592,8 @@ public sealed class FlightLogDatabase
 
     public long SaveVariable(UserVariableRecord variable)
     {
+        // Manuelle Variablen sind unabhaengig von Log-Imports. Id == 0 bedeutet: das
+        // Objekt existiert nur in der UI und muss eingefuegt werden.
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         if (variable.Id == 0)
@@ -612,6 +639,8 @@ public sealed class FlightLogDatabase
 
     public void DeleteLog(long logId)
     {
+        // Wegen aktivierter Foreign Keys entfernt SQLite alle mavlink_messages und
+        // message_fields zum Log automatisch. Das verhindert verwaiste Detaildaten.
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM log_files WHERE id = $id;";
@@ -622,6 +651,9 @@ public sealed class FlightLogDatabase
 
     private Dictionary<int, IReadOnlyList<MavlinkFieldDefinitionRecord>> GetFieldDefinitionsByMessageId()
     {
+        // Import-Optimierung: Die Feldlayouts werden einmal geladen und nach MAVLink-
+        // Message-ID gruppiert. Danach kann jedes Paket direkt per Dictionary-Lookup
+        // dekodiert werden.
         Log("SQL JOIN", "message_definitions JOIN field_definitions for decoder");
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
@@ -664,6 +696,8 @@ public sealed class FlightLogDatabase
         var connection = new SqliteConnection($"Data Source={DatabasePath}");
         connection.Open();
 
+        // SQLite erzwingt Foreign Keys nur pro Verbindung, wenn dieses PRAGMA gesetzt ist.
+        // Ohne diese Zeile wuerden ON DELETE CASCADE-Regeln nicht zuverlaessig greifen.
         using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA foreign_keys = ON;";
         command.ExecuteNonQuery();
@@ -687,6 +721,7 @@ public sealed class FlightLogDatabase
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode == 1)
         {
+            // ErrorCode 1 ist hier der erwartete SQLite-Fehler fuer "duplicate column".
             Log("SQL", $"column exists: {table}.{column}");
         }
     }
@@ -708,6 +743,9 @@ public sealed class FlightLogDatabase
 
     private static long EnsureMessageType(SqliteConnection connection, int messageId)
     {
+        // message_types normalisiert Message-ID, Name und Dialekt. Importierte
+        // mavlink_messages referenzieren diese Tabelle, damit Name/Dialekt nicht in
+        // jeder Nachricht wiederholt werden muessen.
         var definition = GetDefinition(connection, messageId);
         using var insert = connection.CreateCommand();
         insert.CommandText = """
@@ -754,6 +792,8 @@ public sealed class FlightLogDatabase
 
     private static long InsertMessage(SqliteConnection connection, long logId, long messageTypeId, MavlinkFrame frame, DateTimeOffset importStarted, PacketTiming? timing)
     {
+        // Wenn eine Sidecar-Zeitinformation vorhanden ist, wird sie bevorzugt. Sonst
+        // nutzt die Anwendung den Paketindex als robuste, monotone Ersatzzeit.
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO mavlink_messages
@@ -785,6 +825,8 @@ public sealed class FlightLogDatabase
 
     private static string RouteFor(int systemId)
     {
+        // OpenHD nutzt typische System-IDs fuer Ground/Air/QOpenHD. Die Route macht die
+        // spaetere Variablenansicht besser lesbar.
         return systemId switch
         {
             100 => "OpenHD Ground",
@@ -797,6 +839,8 @@ public sealed class FlightLogDatabase
 
     private static void InsertField(SqliteConnection connection, long messageId, DecodedField field)
     {
+        // numeric_value ist nullable: Textfelder und Arrays bleiben nur als value_text
+        // erhalten, echte Zahlen koennen zusaetzlich sortiert/gefiltert werden.
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO message_fields (message_id, field_name, value_text, numeric_value, unit)

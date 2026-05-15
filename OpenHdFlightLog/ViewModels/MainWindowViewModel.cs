@@ -8,8 +8,12 @@ namespace OpenHdFlightLog.ViewModels;
 
 public partial class MainWindowViewModel : ViewModelBase
 {
+    // Das ViewModel ist die Schaltzentrale zwischen UI und Datenhaltung. Es kennt keine
+    // Avalonia-Controls direkt, sondern arbeitet mit ObservableCollections und Commands.
     private readonly FlightLogDatabase database;
 
+    // Diese Collections sind direkt an DataGrids in MainWindow.axaml gebunden. Wenn hier
+    // Elemente hinzugefuegt oder entfernt werden, aktualisiert Avalonia die UI automatisch.
     public ObservableCollection<LogFileRecord> Logs { get; } = [];
     public ObservableCollection<MavlinkMessageRecord> Messages { get; } = [];
     public ObservableCollection<MessageFieldRecord> Fields { get; } = [];
@@ -69,6 +73,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public MainWindowViewModel()
     {
+        // Beim Start wird die lokale SQLite-Datenbank geoeffnet bzw. angelegt. Danach
+        // werden vorhandene Logs, Variablen und Definitionen in die UI geladen.
         database = new FlightLogDatabase(AddDebugEvent);
         RefreshAll();
         Status = $"Datenbank: {DatabasePath}";
@@ -76,6 +82,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedLogChanged(LogFileRecord? value)
     {
+        // CommunityToolkit.Mvvm erzeugt diese Partial-Hooks fuer ObservableProperty.
+        // Sobald in der UI ein anderes Log gewaehlt wird, werden alle abhaengigen
+        // Detailansichten geleert und anschliessend aus der Datenbank neu aufgebaut.
         Messages.Clear();
         Fields.Clear();
         LogVariables.Clear();
@@ -106,6 +115,8 @@ public partial class MainWindowViewModel : ViewModelBase
             OsdReplayFrames.Add(frame);
         }
 
+        // Der OSD-Replay-Slider braucht Min/Max-Werte. Die Frames sind bereits aus den
+        // dekodierten Logvariablen aggregiert.
         if (OsdReplayFrames.Count > 0)
         {
             OsdReplayMaxMs = OsdReplayFrames.Max(frame => frame.TimeMs);
@@ -123,6 +134,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedMessageChanged(MavlinkMessageRecord? value)
     {
+        // Die Feldliste ist eine Detailansicht zur aktuell markierten MAVLink-Nachricht.
         Fields.Clear();
         SelectedField = null;
 
@@ -139,6 +151,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedDefinitionChanged(MavlinkMessageDefinitionRecord? value)
     {
+        // Gleiches Muster fuer MAVLink-Definitionen: Auswahl oben, Feldlayout unten.
         DefinitionFields.Clear();
         SelectedDefinitionField = null;
 
@@ -172,6 +185,8 @@ public partial class MainWindowViewModel : ViewModelBase
         Status = "Import laeuft...";
         try
         {
+            // Vor dem Import werden Definitionen geladen, wenn die Datenbank noch keine
+            // enthaelt. Dadurch koennen OpenHD-spezifische Felder sofort dekodiert werden.
             EnsureDefinitionsLoadedForImport();
             var result = await database.ImportLogAsync(path);
             RefreshLogs();
@@ -191,6 +206,9 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private void LoadOpenHdDefinitions()
     {
+        // Manueller Reload der generierten OpenHD-MAVLink-Header. Das ist nuetzlich,
+        // wenn sich die Header-Dateien geaendert haben oder der automatische Import
+        // wegen fehlendem Repository-Pfad uebersprungen wurde.
         IsBusy = true;
         Status = "OpenHD MAVLink-Header werden gelesen...";
         try
@@ -218,6 +236,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // Die Datenbank nutzt FOREIGN KEY ... ON DELETE CASCADE. Ein Delete auf log_files
+        // entfernt daher automatisch die dazugehoerigen Nachrichten und Felder.
         database.DeleteLog(SelectedLog.Id);
         RefreshLogs();
         Messages.Clear();
@@ -287,6 +307,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // SaveVariable fuehrt Insert oder Update aus. Bei neuen Variablen kommt die neue
+        // Datenbank-ID zurueck und wird im Objekt gespeichert.
         SelectedVariable.Id = database.SaveVariable(SelectedVariable);
         RefreshVariables(SelectedVariable.Id);
         Status = "Variable gespeichert.";
@@ -454,6 +476,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void EnsureDefinitionsLoadedForImport()
     {
+        // Import ohne Definitionen funktioniert, liefert fuer unbekannte Messages aber
+        // nur payload_hex. Deshalb wird hier einmalig versucht, OpenHD-Definitionen zu
+        // laden. Fehler werden nur im Debug-Tab protokolliert, damit der Log-Import nicht
+        // komplett blockiert wird.
         if (Definitions.Count > 0)
         {
             return;
@@ -484,6 +510,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void AddDebugEvent(DebugEventRecord record)
     {
+        // Debug-Ereignisse erscheinen newest-first. Die harte Grenze verhindert, dass ein
+        // langer Import die UI mit beliebig vielen Debug-Zeilen wachsen laesst.
         DebugEvents.Insert(0, record);
         while (DebugEvents.Count > 1000)
         {
@@ -493,6 +521,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void UpdateCurrentOsdFrame()
     {
+        // Fuer einen beliebigen Slider-Zeitpunkt wird der letzte bekannte Frame vor oder
+        // genau an dieser Zeit angezeigt. Dadurch bleibt die Anzeige stabil, auch wenn
+        // nicht fuer jede Millisekunde ein Datensatz existiert.
         if (OsdReplayFrames.Count == 0)
         {
             CurrentOsdFrame = new OsdReplayRecord();

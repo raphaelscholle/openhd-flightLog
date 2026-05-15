@@ -6,6 +6,8 @@ public sealed record DecodedField(string Name, string ValueText, double? Numeric
 
 public static class MavlinkMessageDecoder
 {
+    // Kleiner Fallback-Katalog fuer Standard-MAVLink-Nachrichten. Sobald OpenHD-
+    // Definitionen geladen sind, uebernimmt DynamicMavlinkDecoder das genaue Feldlayout.
     private static readonly Dictionary<int, string> MessageNames = new()
     {
         [0] = "HEARTBEAT",
@@ -25,6 +27,9 @@ public static class MavlinkMessageDecoder
 
     public static IReadOnlyList<DecodedField> Decode(MavlinkFrame frame)
     {
+        // Fuer bekannte Message-IDs werden die Felder manuell aus dem Payload gelesen.
+        // Unbekannte Nachrichten bleiben trotzdem sichtbar, indem der Payload als Hex-
+        // String gespeichert wird.
         var p = frame.Payload;
         var fields = frame.MessageId switch
         {
@@ -48,6 +53,8 @@ public static class MavlinkMessageDecoder
 
     private static List<DecodedField> DecodeHeartbeat(byte[] p)
     {
+        // Jede Decode-Methode prueft zuerst die Mindestlaenge. So fuehrt ein kaputter
+        // oder gekuerzter Frame nicht zu einem Indexfehler.
         if (p.Length < 9) return [];
         return
         [

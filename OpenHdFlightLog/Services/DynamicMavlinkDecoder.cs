@@ -4,6 +4,9 @@ namespace OpenHdFlightLog.Services;
 
 public static class DynamicMavlinkDecoder
 {
+    // Der dynamische Decoder wird benutzt, sobald passende MAVLink-Definitionen in der
+    // Datenbank vorhanden sind. Ohne Definitionen faellt die Anwendung auf den kleinen
+    // eingebauten Decoder fuer Standard-Nachrichten zurueck.
     public static IReadOnlyList<DecodedField> Decode(MavlinkFrame frame, IReadOnlyList<MavlinkFieldDefinitionRecord> fields)
     {
         if (fields.Count == 0)
@@ -24,6 +27,9 @@ public static class DynamicMavlinkDecoder
 
     private static DecodedField DecodeField(byte[] payload, MavlinkFieldDefinitionRecord field)
     {
+        // Die Definition sagt, an welchem Byte-Offset ein Feld beginnt, welchen Datentyp
+        // es hat und ob es ein Array ist. MAVLink speichert Zahlen little endian; .NET auf
+        // den Zielplattformen liest diese Werte mit BitConverter passend aus.
         var elementSize = SizeOf(field.ValueType);
         var count = field.ArrayLength == 0 ? 1 : field.ArrayLength;
         var available = Math.Max(0, payload.Length - field.PayloadOffset);
@@ -31,6 +37,8 @@ public static class DynamicMavlinkDecoder
 
         if (field.ValueType is "char" && field.ArrayLength > 1)
         {
+            // MAVLink-char-Arrays sind in der Praxis oft C-Strings: ASCII, mit Nullbytes
+            // oder Leerzeichen aufgefuellt. Die Trimmung macht die Anzeige lesbar.
             if (count <= 0)
             {
                 return new DecodedField(field.FieldName, "", null, field.Unit);
@@ -57,6 +65,9 @@ public static class DynamicMavlinkDecoder
 
     private static (string text, double? numeric) ReadNumber(byte[] payload, int offset, string type)
     {
+        // Es wird bewusst in einen 8-Byte-Puffer kopiert. Ist das Payload kuerzer als in
+        // der Definition beschrieben, kann trotzdem ein Wert gelesen werden, ohne ueber
+        // das Arrayende zuzugreifen.
         Span<byte> padded = stackalloc byte[8];
         var size = SizeOf(type);
         var available = Math.Max(0, Math.Min(size, payload.Length - offset));

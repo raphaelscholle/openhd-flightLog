@@ -9,6 +9,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // Die View kennt Avalonia-spezifische APIs wie StorageProvider. Das ViewModel
+        // bleibt dadurch UI-framework-arm: Es ruft nur den Delegate auf und bekommt einen
+        // Dateipfad zurueck.
         Opened += (_, _) =>
         {
             if (DataContext is MainWindowViewModel viewModel)
@@ -20,6 +24,8 @@ public partial class MainWindow : Window
 
     private async Task<string?> PickLogFileAsync()
     {
+        // Avalonia liefert abstrakte StorageFile-Objekte. Fuer den Import brauchen wir
+        // einen lokalen Pfad, deshalb wird am Ende TryGetLocalPath verwendet.
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Raw MAVLink Log öffnen",

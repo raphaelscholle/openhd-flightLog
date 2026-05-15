@@ -9,6 +9,9 @@ public sealed record LoadedMavlinkDefinition(
 
 public static partial class MavlinkDefinitionLoader
 {
+    // Lokaler Standardpfad zu einer OpenHD-Checkout-Struktur. Der Pfad wird nur als
+    // Komfort-Default verwendet; LoadFromOpenHdHeaders akzeptiert auch einen anderen
+    // Repository-Pfad.
     public const string DefaultOpenHdRoot = @"C:\Users\Raphael\Documents\GitHub\drivers_\OpenHD";
 
     public static string DefaultHeaderRoot =>
@@ -16,6 +19,9 @@ public static partial class MavlinkDefinitionLoader
 
     public static IReadOnlyList<LoadedMavlinkDefinition> LoadFromOpenHdHeaders(string? repositoryRoot = null)
     {
+        // OpenHD liefert generierte MAVLink-C-Header. Diese enthalten alle Informationen,
+        // die fuer die Datenbank-Definitionen gebraucht werden: Message-ID, Name,
+        // Payload-Laenge, CRC extra und Feldlayout mit Offsets.
         var headerRoot = ResolveHeaderRoot(repositoryRoot);
         if (!Directory.Exists(headerRoot))
         {
@@ -33,6 +39,8 @@ public static partial class MavlinkDefinitionLoader
         }
 
         return definitions
+            // Einige Dialekte koennen dieselbe Message-ID enthalten. Wenn eine OpenHD-
+            // Variante vorhanden ist, ist sie fuer diese Anwendung die passendere.
             .GroupBy(definition => definition.Message.MessageId)
             .Select(group => group.OrderByDescending(definition => definition.Message.Dialect.Equals("openhd", StringComparison.OrdinalIgnoreCase)).First())
             .OrderBy(definition => definition.Message.Dialect)
@@ -42,6 +50,9 @@ public static partial class MavlinkDefinitionLoader
 
     private static string ResolveHeaderRoot(string? repositoryRoot)
     {
+        // Unterstuetzt zwei typische Checkout-Layouts:
+        // 1. Repository-Wurzel enthaelt OpenHD/...
+        // 2. repositoryRoot zeigt bereits in den OpenHD-Unterordner.
         var root = string.IsNullOrWhiteSpace(repositoryRoot) ? DefaultOpenHdRoot : repositoryRoot;
         var direct = Path.Combine(root, "OpenHD", "ohd_telemetry", "lib", "mavlink-headers", "mavlink", "v2.0");
         if (Directory.Exists(direct))
@@ -55,6 +66,8 @@ public static partial class MavlinkDefinitionLoader
 
     private static LoadedMavlinkDefinition? TryLoadFile(string path, string headerRoot)
     {
+        // Jede mavlink_msg_*.h-Datei beschreibt genau einen Message-Typ. Dateien ohne
+        // passende MAVLINK_MSG_ID_* Definition werden ignoriert.
         var text = File.ReadAllText(path);
         var idMatch = MessageIdRegex().Match(text);
         if (!idMatch.Success)
@@ -80,6 +93,8 @@ public static partial class MavlinkDefinitionLoader
                 PayloadOffset = int.Parse(match.Groups["offset"].Value),
                 Description = descriptions.GetValueOrDefault(match.Groups["name"].Value, "")
             })
+            // Der Header kann ein Feld mehrfach erwaehnen, z.B. in verschiedenen
+            // Hilfstabellen. Fuer die Dekodierung reicht der erste Feldlayout-Eintrag.
             .GroupBy(field => field.FieldName)
             .Select(group => group.First())
             .OrderBy(field => field.PayloadOffset)

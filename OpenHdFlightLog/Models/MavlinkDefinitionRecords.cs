@@ -4,6 +4,7 @@ namespace OpenHdFlightLog.Models;
 
 public partial class MavlinkMessageDefinitionRecord : ObservableObject
 {
+    // Datenbank-Primary-Key der Definition. MessageId ist die fachliche MAVLink-ID.
     public long Id { get; set; }
 
     [ObservableProperty]
@@ -31,6 +32,8 @@ public partial class MavlinkMessageDefinitionRecord : ObservableObject
 public partial class MavlinkFieldDefinitionRecord : ObservableObject
 {
     public long Id { get; set; }
+
+    // Fremdschluessel auf message_definitions.id.
     public long DefinitionId { get; set; }
 
     [ObservableProperty]

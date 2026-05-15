@@ -4,6 +4,10 @@ namespace OpenHdFlightLog.Services;
 
 public static class MavlinkParser
 {
+    // MAVLink-Pakete sind binaere Frames in einem Byte-Strom. Der Parser sucht nach
+    // Startbytes und versucht ab dieser Position entweder MAVLink v1 (0xFE) oder v2
+    // (0xFD) zu lesen. Ungueltige oder abgeschnittene Treffer werden ignoriert, damit
+    // ein Log mit Rauschen oder Fremddaten trotzdem weiter durchsucht werden kann.
     public static IReadOnlyList<MavlinkFrame> Parse(byte[] bytes)
     {
         var frames = new List<MavlinkFrame>();
@@ -42,6 +46,9 @@ public static class MavlinkParser
 
     private static MavlinkFrame? TryParseV1(byte[] bytes, int offset, int packetIndex)
     {
+        // MAVLink v1 Header:
+        // 0 magic, 1 payload length, 2 sequence, 3 system id, 4 component id, 5 message id.
+        // Danach folgen Payload und 2 CRC-Bytes.
         if (offset + 8 > bytes.Length)
         {
             return null;
@@ -73,6 +80,10 @@ public static class MavlinkParser
 
     private static MavlinkFrame? TryParseV2(byte[] bytes, int offset, int packetIndex)
     {
+        // MAVLink v2 Header:
+        // 0 magic, 1 payload length, 2 incompat flags, 3 compat flags, 4 sequence,
+        // 5 system id, 6 component id, 7..9 message id (24 Bit little endian).
+        // Signierte Frames enthalten hinter der CRC zusaetzlich eine 13-Byte-Signatur.
         if (offset + 12 > bytes.Length)
         {
             return null;

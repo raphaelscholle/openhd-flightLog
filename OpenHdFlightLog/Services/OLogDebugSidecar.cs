@@ -6,6 +6,9 @@ public sealed record PacketTiming(long ElapsedMs, string Timestamp);
 
 public static class OLogDebugSidecar
 {
+    // Manche Beispiel- oder Replay-Logs besitzen eine .debug.jsonl-Datei daneben.
+    // Darin steht, welche Paketindizes zu welchem Replay-Zeitpunkt gehoeren. Diese
+    // Zusatzdaten machen die OSD-Ansicht zeitlich genauer als der reine Paketindex.
     public static IReadOnlyDictionary<int, PacketTiming> LoadPacketTimings(string logPath)
     {
         var sidecar = ResolveSidecarPath(logPath);
@@ -37,6 +40,8 @@ public static class OLogDebugSidecar
             var elapsed = elapsedProperty.GetInt64();
             var timestamp = timestampProperty.GetString() ?? "";
 
+            // Ein JSONL-Eintrag kann mehrere aufeinanderfolgende Pakete beschreiben.
+            // Alle betroffenen Paketindizes erhalten dieselbe Zeitinformation.
             for (var i = 0; i < count; i++)
             {
                 timings[first + i] = new PacketTiming(elapsed, timestamp);
@@ -48,6 +53,9 @@ public static class OLogDebugSidecar
 
     private static string? ResolveSidecarPath(string logPath)
     {
+        // Unterstuetzte Namensformen:
+        // - sample.oLog.debug.jsonl
+        // - sample.debug.jsonl
         var direct = logPath + ".debug.jsonl";
         if (File.Exists(direct))
         {
