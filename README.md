@@ -133,6 +133,10 @@ Eine sehr detaillierte Beschreibung der Datenbankanbindung, Tabellen,
 Fremdschluessel, Importtransaktion und Abfragewege steht in
 [`docs/DATABASE.md`](docs/DATABASE.md).
 
+Eine kompakte, vorzeigbare Pruefungsdokumentation mit Klassendiagramm,
+Architekturuebersicht, ER-Diagramm, Ablaufdiagrammen und Demo-Leitfaden steht in
+[`docs/PRUEFUNGSDOKUMENTATION.md`](docs/PRUEFUNGSDOKUMENTATION.md).
+
 ## Beispiel-Logs
 
 Im Repository liegen Beispiel-Dateien:

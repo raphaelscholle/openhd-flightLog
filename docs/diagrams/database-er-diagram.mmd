@@ -1,0 +1,78 @@
+erDiagram
+    log_files ||--o{ mavlink_messages : contains
+    message_types ||--o{ mavlink_messages : classifies
+    mavlink_messages ||--o{ message_fields : has
+    message_definitions ||--o{ field_definitions : defines
+
+    log_files {
+        integer id PK
+        text file_name
+        text path
+        text imported_at
+        integer message_count
+    }
+
+    message_types {
+        integer id PK
+        integer message_id UK
+        text name
+        text dialect
+        text description
+    }
+
+    mavlink_messages {
+        integer id PK
+        integer log_file_id FK
+        integer message_type_id FK
+        integer packet_index
+        integer packet_time_ms
+        text packet_timestamp
+        integer byte_offset
+        integer mavlink_version
+        integer sequence
+        integer system_id
+        integer component_id
+        text route
+        integer payload_length
+        text checksum
+        text raw_packet_hex
+    }
+
+    message_fields {
+        integer id PK
+        integer message_id FK
+        text field_name
+        text value_text
+        real numeric_value
+        text unit
+    }
+
+    user_variables {
+        integer id PK
+        text name
+        text value_text
+        text data_type
+        text notes
+    }
+
+    message_definitions {
+        integer id PK
+        integer message_id UK
+        text name
+        text dialect
+        integer payload_length
+        integer crc_extra
+        text source_file
+        text notes
+    }
+
+    field_definitions {
+        integer id PK
+        integer definition_id FK
+        text field_name
+        text value_type
+        integer array_length
+        integer payload_offset
+        text unit
+        text description
+    }

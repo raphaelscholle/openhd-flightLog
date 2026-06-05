@@ -1,0 +1,13 @@
+flowchart LR
+    User[Benutzer] --> View[MainWindow.axaml / MainWindow.axaml.cs]
+    View --> VM[MainWindowViewModel]
+    VM --> DB[FlightLogDatabase]
+    VM --> DefLoader[MavlinkDefinitionLoader]
+    DB --> Parser[MavlinkParser]
+    DB --> Sidecar[OLogDebugSidecar]
+    DB --> DynamicDecoder[DynamicMavlinkDecoder]
+    DynamicDecoder --> FallbackDecoder[MavlinkMessageDecoder]
+    DB --> SQLite[(flightlogs.sqlite)]
+    DefLoader --> Headers[OpenHD MAVLink Header]
+    Parser --> Frames[MavlinkFrame]
+    DynamicDecoder --> Fields[DecodedField]

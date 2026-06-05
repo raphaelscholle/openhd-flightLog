@@ -1,0 +1,33 @@
+sequenceDiagram
+    actor User as Benutzer
+    participant View as MainWindow
+    participant VM as MainWindowViewModel
+    participant Loader as MavlinkDefinitionLoader
+    participant DB as FlightLogDatabase
+    participant Parser as MavlinkParser
+    participant Sidecar as OLogDebugSidecar
+    participant Decoder as DynamicMavlinkDecoder
+    participant SQLite as SQLite
+
+    User->>View: Import Log anklicken
+    View->>User: Dateiauswahldialog anzeigen
+    User->>View: Logdatei auswaehlen
+    View->>VM: Dateipfad ueber Delegate liefern
+    VM->>Loader: Definitionen bei Bedarf automatisch laden
+    Loader-->>VM: MAVLink-Definitionen
+    VM->>DB: ImportLogAsync(path)
+    DB->>Parser: Parse(bytes)
+    Parser-->>DB: MavlinkFrame-Liste
+    DB->>Sidecar: LoadPacketTimings(path)
+    Sidecar-->>DB: optionale Zeitdaten
+    DB->>SQLite: Transaktion starten
+    loop pro Frame
+        DB->>SQLite: Log/MessageType/Message speichern
+        DB->>Decoder: Decode(frame, fieldDefinitions)
+        Decoder-->>DB: DecodedField-Liste
+        DB->>SQLite: message_fields einfuegen
+    end
+    DB->>SQLite: Commit
+    DB-->>VM: ImportResult
+    VM->>DB: Logs, Messages, Variablen, OSD neu laden
+    VM-->>View: ObservableCollections aktualisieren UI

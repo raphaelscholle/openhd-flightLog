@@ -1,0 +1,9 @@
+flowchart TD
+    A[MAVLink-Frame] --> B{Felddefinitionen fuer Message-ID vorhanden?}
+    B -- ja --> C[Payload nach payload_offset und value_type lesen]
+    C --> D[DecodedField mit value_text, numeric_value und unit]
+    B -- nein --> E{Message-ID im Fallback-Katalog?}
+    E -- ja --> F[Standardfelder manuell dekodieren]
+    E -- nein --> G[payload_hex speichern]
+    F --> D
+    G --> D

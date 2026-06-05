@@ -1,0 +1,120 @@
+classDiagram
+    class Program {
+        +Main(string[] args) void
+        +BuildAvaloniaApp() AppBuilder
+    }
+
+    class App
+    class ViewLocator
+    class MainWindow {
+        +MainWindow()
+        -PickLogFileAsync() Task
+    }
+
+    class ViewModelBase
+    class MainWindowViewModel {
+        -FlightLogDatabase database
+        +ObservableCollection~LogFileRecord~ Logs
+        +ObservableCollection~MavlinkMessageRecord~ Messages
+        +ObservableCollection~MessageFieldRecord~ Fields
+        +ObservableCollection~LogVariableRecord~ LogVariables
+        +ObservableCollection~OsdReplayRecord~ OsdReplayFrames
+        +ObservableCollection~UserVariableRecord~ Variables
+        +ObservableCollection~MavlinkMessageDefinitionRecord~ Definitions
+        +ObservableCollection~MavlinkFieldDefinitionRecord~ DefinitionFields
+        +ObservableCollection~DebugEventRecord~ DebugEvents
+        +OpenLogFileRequested
+        +string Status
+        +bool IsBusy
+        +ImportLogAsync() Task
+        +LoadOpenHdDefinitions() void
+        +DeleteLog() void
+        +SaveField() void
+        +AddVariable() void
+        +SaveVariable() void
+        +SaveDefinition() void
+        +PreviousOsdFrame() void
+        +NextOsdFrame() void
+        +RefreshAll() void
+    }
+
+    class FlightLogDatabase {
+        +string DatabasePath
+        +EnsureSchema() void
+        +ImportLogAsync(string path) Task~ImportResult~
+        +ImportDefinitions(IReadOnlyList~LoadedMavlinkDefinition~ definitions) int
+        +GetLogs() IReadOnlyList~LogFileRecord~
+        +GetMessages(long logId) IReadOnlyList~MavlinkMessageRecord~
+        +GetFields(long messageId) IReadOnlyList~MessageFieldRecord~
+        +GetLogVariables(long logId) IReadOnlyList~LogVariableRecord~
+        +GetOsdReplayFrames(long logId) IReadOnlyList~OsdReplayRecord~
+        +GetVariables() IReadOnlyList~UserVariableRecord~
+        +GetDefinitions() IReadOnlyList~MavlinkMessageDefinitionRecord~
+        +SaveField(MessageFieldRecord field) void
+        +SaveVariable(UserVariableRecord variable) long
+        +DeleteLog(long logId) void
+    }
+
+    class MavlinkParser {
+        +Parse(byte[] bytes) IReadOnlyList~MavlinkFrame~
+    }
+
+    class DynamicMavlinkDecoder {
+        +Decode(MavlinkFrame frame, IReadOnlyList~MavlinkFieldDefinitionRecord~ fields) IReadOnlyList~DecodedField~
+    }
+
+    class MavlinkMessageDecoder {
+        +GetMessageName(int messageId) string
+        +Decode(MavlinkFrame frame) IReadOnlyList~DecodedField~
+    }
+
+    class MavlinkDefinitionLoader {
+        +DefaultOpenHdRoot string
+        +DefaultHeaderRoot string
+        +LoadFromOpenHdHeaders(string? repositoryRoot) IReadOnlyList~LoadedMavlinkDefinition~
+    }
+
+    class OLogDebugSidecar {
+        +LoadPacketTimings(string logPath) IReadOnlyDictionary~int, PacketTiming~
+    }
+
+    class LogFileRecord
+    class MavlinkMessageRecord
+    class MessageFieldRecord
+    class LogVariableRecord
+    class OsdReplayRecord
+    class UserVariableRecord
+    class MavlinkMessageDefinitionRecord
+    class MavlinkFieldDefinitionRecord
+    class DebugEventRecord
+    class MavlinkFrame
+    class DecodedField
+    class LoadedMavlinkDefinition
+    class PacketTiming
+    class ImportResult
+
+    Program --> App
+    MainWindow --> MainWindowViewModel : DataContext / Delegate
+    MainWindowViewModel --|> ViewModelBase
+    MainWindowViewModel *-- FlightLogDatabase
+    MainWindowViewModel --> MavlinkDefinitionLoader
+    MainWindowViewModel --> LogFileRecord
+    MainWindowViewModel --> MavlinkMessageRecord
+    MainWindowViewModel --> MessageFieldRecord
+    MainWindowViewModel --> UserVariableRecord
+    MainWindowViewModel --> MavlinkMessageDefinitionRecord
+    MainWindowViewModel --> MavlinkFieldDefinitionRecord
+    MainWindowViewModel --> OsdReplayRecord
+    MainWindowViewModel --> DebugEventRecord
+    FlightLogDatabase --> MavlinkParser
+    FlightLogDatabase --> DynamicMavlinkDecoder
+    FlightLogDatabase --> OLogDebugSidecar
+    FlightLogDatabase --> ImportResult
+    MavlinkParser --> MavlinkFrame
+    DynamicMavlinkDecoder --> MavlinkFrame
+    DynamicMavlinkDecoder --> DecodedField
+    DynamicMavlinkDecoder --> MavlinkMessageDecoder : fallback
+    MavlinkDefinitionLoader --> LoadedMavlinkDefinition
+    LoadedMavlinkDefinition --> MavlinkMessageDefinitionRecord
+    LoadedMavlinkDefinition --> MavlinkFieldDefinitionRecord
+    OLogDebugSidecar --> PacketTiming
