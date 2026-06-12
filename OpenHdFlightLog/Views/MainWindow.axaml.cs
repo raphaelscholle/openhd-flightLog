@@ -13,11 +13,12 @@ public partial class MainWindow : Window
         // Die View kennt Avalonia-spezifische APIs wie StorageProvider. Das ViewModel
         // bleibt dadurch UI-framework-arm: Es ruft nur den Delegate auf und bekommt einen
         // Dateipfad zurueck.
-        Opened += (_, _) =>
+        Opened += async (_, _) =>
         {
             if (DataContext is MainWindowViewModel viewModel)
             {
                 viewModel.OpenLogFileRequested = PickLogFileAsync;
+                await viewModel.InitializeAsync();
             }
         };
     }

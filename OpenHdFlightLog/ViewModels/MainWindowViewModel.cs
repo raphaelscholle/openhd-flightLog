@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using OpenHdFlightLog.Models;
@@ -10,7 +11,8 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     // Das ViewModel ist die Schaltzentrale zwischen UI und Datenhaltung. Es kennt keine
     // Avalonia-Controls direkt, sondern arbeitet mit ObservableCollections und Commands.
-    private readonly FlightLogDatabase database;
+    private FlightLogDatabase? database;
+    private bool isInitialized;
 
     // Diese Collections sind direkt an DataGrids in MainWindow.axaml gebunden. Wenn hier
     // Elemente hinzugefuegt oder entfernt werden, aktualisiert Avalonia die UI automatisch.
@@ -68,16 +70,42 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     private OsdReplayRecord currentOsdFrame = new();
 
-    public string DatabasePath => database.DatabasePath;
+    private FlightLogDatabase Database => database ?? throw new InvalidOperationException("Datenbank ist noch nicht initialisiert.");
+
+    public string DatabasePath => database?.DatabasePath ?? "nicht verbunden";
     public string OpenHdRepositoryPath => MavlinkDefinitionLoader.DefaultOpenHdRoot;
 
     public MainWindowViewModel()
     {
-        // Beim Start wird die lokale SQLite-Datenbank geoeffnet bzw. angelegt. Danach
-        // werden vorhandene Logs, Variablen und Definitionen in die UI geladen.
-        database = new FlightLogDatabase(AddDebugEvent);
-        RefreshAll();
-        Status = $"Datenbank: {DatabasePath}";
+        // Die Datenbankinitialisierung kann MySQL/Docker starten und darf deshalb nicht
+        // im Konstruktor laufen. Sonst bleibt das Fenster beim Start schwarz.
+        Status = "Datenbank wird initialisiert...";
+    }
+
+    public async Task InitializeAsync()
+    {
+        if (isInitialized)
+        {
+            return;
+        }
+
+        isInitialized = true;
+        IsBusy = true;
+        Status = "Datenbank wird initialisiert...";
+        try
+        {
+            database = await Task.Run(() => new FlightLogDatabase(AddDebugEvent));
+            RefreshAll();
+            Status = $"Datenbank: {DatabasePath}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Datenbank konnte nicht initialisiert werden: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     partial void OnSelectedLogChanged(LogFileRecord? value)
@@ -100,17 +128,17 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        foreach (var message in database.GetMessages(value.Id))
+        foreach (var message in Database.GetMessages(value.Id))
         {
             Messages.Add(message);
         }
 
-        foreach (var variable in database.GetLogVariables(value.Id))
+        foreach (var variable in Database.GetLogVariables(value.Id))
         {
             LogVariables.Add(variable);
         }
 
-        foreach (var frame in database.GetOsdReplayFrames(value.Id))
+        foreach (var frame in Database.GetOsdReplayFrames(value.Id))
         {
             OsdReplayFrames.Add(frame);
         }
@@ -143,7 +171,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        foreach (var field in database.GetFields(value.Id))
+        foreach (var field in Database.GetFields(value.Id))
         {
             Fields.Add(field);
         }
@@ -160,7 +188,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        foreach (var field in database.GetDefinitionFields(value.Id))
+        foreach (var field in Database.GetDefinitionFields(value.Id))
         {
             DefinitionFields.Add(field);
         }
@@ -172,6 +200,12 @@ public partial class MainWindowViewModel : ViewModelBase
         if (OpenLogFileRequested is null)
         {
             Status = "Dateiauswahl ist nicht verfuegbar.";
+            return;
+        }
+
+        if (database is null)
+        {
+            Status = "Datenbank ist noch nicht bereit.";
             return;
         }
 
@@ -188,7 +222,7 @@ public partial class MainWindowViewModel : ViewModelBase
             // Vor dem Import werden Definitionen geladen, wenn die Datenbank noch keine
             // enthaelt. Dadurch koennen OpenHD-spezifische Felder sofort dekodiert werden.
             EnsureDefinitionsLoadedForImport();
-            var result = await database.ImportLogAsync(path);
+            var result = await Database.ImportLogAsync(path);
             RefreshLogs();
             SelectedLog = Logs.FirstOrDefault(log => log.Id == result.LogId);
             Status = $"{Path.GetFileName(path)} importiert: {result.MessageCount:N0} MAVLink-Nachrichten.";
@@ -213,8 +247,14 @@ public partial class MainWindowViewModel : ViewModelBase
         Status = "OpenHD MAVLink-Header werden gelesen...";
         try
         {
+            if (database is null)
+            {
+                Status = "Datenbank ist noch nicht bereit.";
+                return;
+            }
+
             var definitions = MavlinkDefinitionLoader.LoadFromOpenHdHeaders();
-            var count = database.ImportDefinitions(definitions);
+            var count = Database.ImportDefinitions(definitions);
             RefreshDefinitions();
             Status = $"{count:N0} MAVLink-Definitionen aus OpenHD geladen.";
         }
@@ -238,7 +278,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // Die Datenbank nutzt FOREIGN KEY ... ON DELETE CASCADE. Ein Delete auf log_files
         // entfernt daher automatisch die dazugehoerigen Nachrichten und Felder.
-        database.DeleteLog(SelectedLog.Id);
+        Database.DeleteLog(SelectedLog.Id);
         RefreshLogs();
         Messages.Clear();
         Fields.Clear();
@@ -257,7 +297,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        database.SaveField(SelectedField);
+        Database.SaveField(SelectedField);
         Status = "Feld gespeichert.";
     }
 
@@ -272,7 +312,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var field = SelectedField;
-        database.DeleteField(field.Id);
+        Database.DeleteField(field.Id);
         Fields.Remove(field);
         SelectedField = null;
         Status = "Feld geloescht.";
@@ -309,7 +349,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         // SaveVariable fuehrt Insert oder Update aus. Bei neuen Variablen kommt die neue
         // Datenbank-ID zurueck und wird im Objekt gespeichert.
-        SelectedVariable.Id = database.SaveVariable(SelectedVariable);
+        SelectedVariable.Id = Database.SaveVariable(SelectedVariable);
         RefreshVariables(SelectedVariable.Id);
         Status = "Variable gespeichert.";
     }
@@ -327,7 +367,7 @@ public partial class MainWindowViewModel : ViewModelBase
         var variable = SelectedVariable;
         if (variable.Id != 0)
         {
-            database.DeleteVariable(variable.Id);
+            Database.DeleteVariable(variable.Id);
         }
 
         Variables.Remove(variable);
@@ -343,7 +383,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        database.SaveDefinition(SelectedDefinition);
+        Database.SaveDefinition(SelectedDefinition);
         RefreshDefinitions(SelectedDefinition.Id);
         Status = "Message-Definition gespeichert.";
     }
@@ -359,7 +399,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var definition = SelectedDefinition;
-        database.DeleteDefinition(definition.Id);
+        Database.DeleteDefinition(definition.Id);
         Definitions.Remove(definition);
         DefinitionFields.Clear();
         SelectedDefinition = null;
@@ -374,7 +414,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        database.SaveDefinitionField(SelectedDefinitionField);
+        Database.SaveDefinitionField(SelectedDefinitionField);
         Status = "Feld-Definition gespeichert.";
     }
 
@@ -389,7 +429,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         var field = SelectedDefinitionField;
-        database.DeleteDefinitionField(field.Id);
+        Database.DeleteDefinitionField(field.Id);
         DefinitionFields.Remove(field);
         SelectedDefinitionField = null;
         Status = "Feld-Definition geloescht.";
@@ -438,7 +478,12 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var selectedId = SelectedLog?.Id;
         Logs.Clear();
-        foreach (var log in database.GetLogs())
+        if (database is null)
+        {
+            return;
+        }
+
+        foreach (var log in Database.GetLogs())
         {
             Logs.Add(log);
         }
@@ -449,7 +494,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private void RefreshVariables(long? selectedId = null)
     {
         Variables.Clear();
-        foreach (var variable in database.GetVariables())
+        if (database is null)
+        {
+            return;
+        }
+
+        foreach (var variable in Database.GetVariables())
         {
             Variables.Add(variable);
         }
@@ -463,7 +513,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private void RefreshDefinitions(long? selectedId = null)
     {
         Definitions.Clear();
-        foreach (var definition in database.GetDefinitions())
+        if (database is null)
+        {
+            return;
+        }
+
+        foreach (var definition in Database.GetDefinitions())
         {
             Definitions.Add(definition);
         }
@@ -488,7 +543,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             var definitions = MavlinkDefinitionLoader.LoadFromOpenHdHeaders();
-            var count = database.ImportDefinitions(definitions);
+            var count = Database.ImportDefinitions(definitions);
             RefreshDefinitions();
             AddDebugEvent(new DebugEventRecord
             {
@@ -512,6 +567,12 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         // Debug-Ereignisse erscheinen newest-first. Die harte Grenze verhindert, dass ein
         // langer Import die UI mit beliebig vielen Debug-Zeilen wachsen laesst.
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => AddDebugEvent(record));
+            return;
+        }
+
         DebugEvents.Insert(0, record);
         while (DebugEvents.Count > 1000)
         {

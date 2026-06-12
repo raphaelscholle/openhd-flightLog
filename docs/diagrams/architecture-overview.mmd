@@ -7,7 +7,7 @@ flowchart LR
     DB --> Sidecar[OLogDebugSidecar]
     DB --> DynamicDecoder[DynamicMavlinkDecoder]
     DynamicDecoder --> FallbackDecoder[MavlinkMessageDecoder]
-    DB --> SQLite[(flightlogs.sqlite)]
+    DB --> MySQL[(MySQL openhd_flightlog)]
     DefLoader --> Headers[OpenHD MAVLink Header]
     Parser --> Frames[MavlinkFrame]
     DynamicDecoder --> Fields[DecodedField]

@@ -1,0 +1,52 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "OpenHD: Start MariaDB",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\start-openhd-mariadb.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenHD: Run App",
+      "type": "shell",
+      "dependsOn": "OpenHD: Start MariaDB",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}\\OpenHdFlightLog\\OpenHdFlightLog.csproj"
+      ],
+      "options": {
+        "env": {
+          "OPENHD_MYSQL_HOST": "127.0.0.1",
+          "OPENHD_MYSQL_PORT": "13306",
+          "OPENHD_MYSQL_USER": "root",
+          "OPENHD_MYSQL_PASSWORD": "openhd",
+          "OPENHD_MYSQL_DATABASE": "openhd_flightlog"
+        }
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "OpenHD: Stop MariaDB",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\stop-openhd-mariadb.ps1"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

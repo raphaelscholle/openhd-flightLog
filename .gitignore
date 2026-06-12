@@ -7,3 +7,5 @@
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+logs/
+mariadb-openhd*.log

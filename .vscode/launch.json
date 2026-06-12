@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "OpenHD FlightLog",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "OpenHD: Start MariaDB",
+      "program": "${workspaceFolder}\\OpenHdFlightLog\\bin\\Debug\\net9.0\\OpenHdFlightLog.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "OPENHD_MYSQL_HOST": "127.0.0.1",
+        "OPENHD_MYSQL_PORT": "13306",
+        "OPENHD_MYSQL_USER": "root",
+        "OPENHD_MYSQL_PASSWORD": "openhd",
+        "OPENHD_MYSQL_DATABASE": "openhd_flightlog"
+      }
+    }
+  ]
+}

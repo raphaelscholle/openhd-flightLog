@@ -1,23 +1,37 @@
 # Datenbankanbindung im Detail
 
 Dieses Dokument beschreibt kleinmaschig, wie OpenHD FlightLog Studio mit der
-lokalen SQLite-Datenbank arbeitet. Der relevante Code liegt in
+lokalen MySQL-Datenbank arbeitet. Der relevante Code liegt in
 `OpenHdFlightLog/Services/FlightLogDatabase.cs`.
 
 ## Grundprinzip
 
-Die Anwendung verwendet `Microsoft.Data.Sqlite`. Es gibt keinen externen
-Datenbankserver. Jede Installation schreibt in eine lokale Datei:
+Die Anwendung verwendet `MySqlConnector`. Beim Start prueft die App, ob ein
+MySQL-Server erreichbar ist. Wenn nicht, versucht sie automatisch den
+Docker-Container `openhd-flightlog-mysql` mit dem Image `mysql:8.4` zu starten
+oder anzulegen.
+
+Standardverbindung:
 
 ```text
-%LOCALAPPDATA%\OpenHdFlightLog\flightlogs.sqlite
+Host: 127.0.0.1
+Port: 3306
+Database: openhd_flightlog
+User: root
+Password: openhd
 ```
+
+Die Werte koennen ueber `OPENHD_MYSQL_HOST`, `OPENHD_MYSQL_PORT`,
+`OPENHD_MYSQL_DATABASE`, `OPENHD_MYSQL_USER` und `OPENHD_MYSQL_PASSWORD`
+ueberschrieben werden.
 
 Beim Erzeugen von `FlightLogDatabase` passiert Folgendes:
 
-1. Der Pfad `%LOCALAPPDATA%\OpenHdFlightLog` wird berechnet.
-2. Der Ordner wird mit `Directory.CreateDirectory` angelegt, falls er fehlt.
-3. `DatabasePath` wird auf `flightlogs.sqlite` gesetzt.
+1. Die MySQL-Verbindungsdaten werden aus Umgebungsvariablen oder Standardwerten
+   aufgebaut.
+2. `MySqlServerManager.EnsureServerStarted()` prueft die Serververbindung und
+   startet bei Bedarf Docker.
+3. `EnsureDatabase()` legt die Datenbank an, falls sie fehlt.
 4. `EnsureSchema()` wird aufgerufen.
 5. `EnsureSchema()` legt Tabellen, Indizes und einfache Migrationen an.
 
@@ -26,18 +40,12 @@ Beim Erzeugen von `FlightLogDatabase` passiert Folgendes:
 Jede Datenbankoperation oeffnet eine neue Verbindung:
 
 ```csharp
-var connection = new SqliteConnection($"Data Source={DatabasePath}");
+var connection = new MySqlConnection(connectionStringBuilder.ConnectionString);
 connection.Open();
 ```
 
-Direkt danach wird ausgefuehrt:
-
-```sql
-PRAGMA foreign_keys = ON;
-```
-
-Das ist wichtig, weil SQLite Foreign Keys pro Verbindung aktivieren muss. Ohne
-dieses PRAGMA wuerden `ON DELETE CASCADE` Regeln nicht sicher greifen.
+Foreign Keys laufen ueber InnoDB. Das Schema erzeugt die Tabellen deshalb mit
+`ENGINE=InnoDB`, damit `ON DELETE CASCADE` Regeln greifen.
 
 Die Verbindung wird in den meisten Methoden mit `using var connection` erzeugt.
 Dadurch wird sie am Ende der Methode automatisch geschlossen.
@@ -58,11 +66,11 @@ App angelegt wurden.
 Beispiel:
 
 ```csharp
-TryAddColumn(connection, "mavlink_messages", "route", "TEXT NOT NULL DEFAULT ''");
+TryAddColumn(connection, "mavlink_messages", "route", "VARCHAR(255) NOT NULL DEFAULT ''");
 ```
 
 Wenn die Spalte noch fehlt, wird sie per `ALTER TABLE` hinzugefuegt. Wenn sie
-schon existiert, wirft SQLite einen Fehler. Dieser wird abgefangen und nur im
+schon existiert, wirft MySQL einen Fehler. Dieser wird abgefangen und nur im
 Debug-Log gemeldet.
 
 ## Tabellenuebersicht
@@ -211,12 +219,15 @@ automatisch.
 Das Schema legt mehrere Indizes an:
 
 ```sql
-CREATE INDEX IF NOT EXISTS ix_mavlink_messages_log ON mavlink_messages(log_file_id);
-CREATE INDEX IF NOT EXISTS ix_mavlink_messages_type ON mavlink_messages(message_type_id);
-CREATE INDEX IF NOT EXISTS ix_message_fields_message ON message_fields(message_id);
-CREATE INDEX IF NOT EXISTS ix_message_fields_name ON message_fields(field_name);
-CREATE INDEX IF NOT EXISTS ix_field_definitions_definition ON field_definitions(definition_id);
+CREATE INDEX ix_mavlink_messages_log ON mavlink_messages(log_file_id);
+CREATE INDEX ix_mavlink_messages_type ON mavlink_messages(message_type_id);
+CREATE INDEX ix_message_fields_message ON message_fields(message_id);
+CREATE INDEX ix_message_fields_name ON message_fields(field_name);
+CREATE INDEX ix_field_definitions_definition ON field_definitions(definition_id);
 ```
+
+Wenn ein Index bereits existiert, faengt `EnsureIndex` den MySQL-Fehler fuer
+doppelte Indexnamen ab und schreibt nur einen Debug-Eintrag.
 
 Diese Indizes beschleunigen die typischen UI-Abfragen:
 
@@ -282,7 +293,7 @@ var logId = InsertLogFile(connection, path, frames.Count, importStarted);
 ```
 
 Die Methode schreibt Dateiname, Pfad, Importzeit und Frameanzahl. Die neue
-`log_files.id` kommt per `RETURNING id` zurueck.
+`log_files.id` kommt ueber `LastInsertedId` zurueck.
 
 ### 7. Pro Frame message_types sicherstellen
 
@@ -298,8 +309,7 @@ Der Insert ist ein Upsert:
 
 ```sql
 INSERT INTO message_types (...)
-ON CONFLICT(message_id) DO UPDATE SET ...
-RETURNING id;
+ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id), ...
 ```
 
 Dadurch gibt es pro MAVLink-Message-ID nur einen Typdatensatz.
@@ -445,8 +455,8 @@ Diese Daten treiben auch die OSD-Replay-Aggregation.
 - `Id == 0`: Insert in `user_variables`
 - `Id != 0`: Update in `user_variables`
 
-Beide Varianten verwenden `RETURNING id`, damit die UI nach dem Speichern die
-korrekte Datenbank-ID kennt.
+Beim Insert verwendet die Methode `LastInsertedId`; beim Update bleibt die
+vorhandene ID erhalten.
 
 ### Definitionen bearbeiten
 
@@ -467,7 +477,7 @@ Durch:
 FOREIGN KEY (log_file_id) REFERENCES log_files(id) ON DELETE CASCADE
 ```
 
-entfernt SQLite automatisch:
+entfernt MySQL automatisch:
 
 - alle `mavlink_messages` dieses Logs
 - ueber die naechste Cascade-Stufe alle `message_fields` dieser Messages
@@ -496,8 +506,8 @@ Typische Kategorien:
 ## Wichtige Eigenschaften der aktuellen Implementierung
 
 - Es gibt keine globale Langzeitverbindung. Jede Operation oeffnet und schliesst
-  ihre eigene SQLite-Verbindung.
-- Foreign Keys werden fuer jede Verbindung aktiviert.
+  ihre eigene MySQL-Verbindung.
+- Foreign Keys laufen ueber InnoDB.
 - Imports und Definitionsimporte laufen in Transaktionen.
 - Lokale Schema-Migrationen sind einfach gehalten und bestehen aus
   `ALTER TABLE ADD COLUMN`.

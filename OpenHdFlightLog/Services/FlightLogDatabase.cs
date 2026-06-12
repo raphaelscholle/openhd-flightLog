@@ -1,4 +1,6 @@
-using Microsoft.Data.Sqlite;
+using System.ComponentModel;
+using System.Diagnostics;
+using MySqlConnector;
 using OpenHdFlightLog.Models;
 
 namespace OpenHdFlightLog.Services;
@@ -11,17 +13,46 @@ public sealed class FlightLogDatabase
 
     public string DatabasePath { get; }
 
+    private readonly MySqlConnectionStringBuilder connectionStringBuilder;
+
     public FlightLogDatabase(Action<DebugEventRecord>? debug = null)
     {
         this.debug = debug;
-        // Die Datenbank liegt absichtlich im Benutzerprofil statt im Projektordner. So
-        // bleiben importierte Logs erhalten, auch wenn die Anwendung neu gebaut wird.
-        var appData = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenHdFlightLog");
-        Directory.CreateDirectory(appData);
-        DatabasePath = Path.Combine(appData, "flightlogs.sqlite");
+        connectionStringBuilder = CreateConnectionStringBuilder();
+        DatabasePath = $"{connectionStringBuilder.Server}:{connectionStringBuilder.Port}/{connectionStringBuilder.Database}";
+        MySqlServerManager.EnsureServerStarted(connectionStringBuilder, Log);
+        EnsureDatabase();
         EnsureSchema();
+    }
+
+    private static MySqlConnectionStringBuilder CreateConnectionStringBuilder()
+    {
+        return new MySqlConnectionStringBuilder
+        {
+            Server = Environment.GetEnvironmentVariable("OPENHD_MYSQL_HOST") ?? "127.0.0.1",
+            Port = uint.TryParse(Environment.GetEnvironmentVariable("OPENHD_MYSQL_PORT"), out var port) ? port : 13306,
+            UserID = Environment.GetEnvironmentVariable("OPENHD_MYSQL_USER") ?? "root",
+            Password = Environment.GetEnvironmentVariable("OPENHD_MYSQL_PASSWORD") ?? "openhd",
+            Database = Environment.GetEnvironmentVariable("OPENHD_MYSQL_DATABASE") ?? "openhd_flightlog",
+            CharacterSet = "utf8mb4",
+            SslMode = MySqlSslMode.None,
+            AllowLoadLocalInfile = false
+        };
+    }
+
+    private void EnsureDatabase()
+    {
+        var serverConnection = new MySqlConnectionStringBuilder(connectionStringBuilder.ConnectionString)
+        {
+            Database = ""
+        };
+
+        using var connection = new MySqlConnection(serverConnection.ConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"CREATE DATABASE IF NOT EXISTS `{connectionStringBuilder.Database.Replace("`", "``")}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;";
+        command.ExecuteNonQuery();
+        Log("MYSQL", $"database ready: {connectionStringBuilder.Database}");
     }
 
     public void EnsureSchema()
@@ -31,96 +62,96 @@ public sealed class FlightLogDatabase
         using var connection = OpenConnection();
         ExecuteNonQuery(connection, """
             CREATE TABLE IF NOT EXISTS log_files (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_name TEXT NOT NULL,
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                file_name VARCHAR(512) NOT NULL,
                 path TEXT NOT NULL,
-                imported_at TEXT NOT NULL,
-                message_count INTEGER NOT NULL
-            );
+                imported_at VARCHAR(64) NOT NULL,
+                message_count INT NOT NULL
+            ) ENGINE=InnoDB;
 
             CREATE TABLE IF NOT EXISTS message_types (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id INTEGER NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                dialect TEXT NOT NULL DEFAULT '',
-                description TEXT NOT NULL DEFAULT ''
-            );
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                message_id INT NOT NULL UNIQUE,
+                name VARCHAR(255) NOT NULL,
+                dialect VARCHAR(255) NOT NULL DEFAULT '',
+                description VARCHAR(1024) NOT NULL DEFAULT ''
+            ) ENGINE=InnoDB;
 
             CREATE TABLE IF NOT EXISTS mavlink_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                log_file_id INTEGER NOT NULL,
-                message_type_id INTEGER NOT NULL,
-                packet_index INTEGER NOT NULL,
-                packet_time_ms INTEGER NOT NULL DEFAULT 0,
-                packet_timestamp TEXT NOT NULL DEFAULT '',
-                byte_offset INTEGER NOT NULL,
-                mavlink_version INTEGER NOT NULL,
-                sequence INTEGER NOT NULL,
-                system_id INTEGER NOT NULL,
-                component_id INTEGER NOT NULL,
-                route TEXT NOT NULL DEFAULT '',
-                payload_length INTEGER NOT NULL,
-                checksum TEXT NOT NULL,
-                raw_packet_hex TEXT NOT NULL,
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                log_file_id BIGINT NOT NULL,
+                message_type_id BIGINT NOT NULL,
+                packet_index INT NOT NULL,
+                packet_time_ms BIGINT NOT NULL DEFAULT 0,
+                packet_timestamp VARCHAR(64) NOT NULL DEFAULT '',
+                byte_offset INT NOT NULL,
+                mavlink_version INT NOT NULL,
+                sequence INT NOT NULL,
+                system_id INT NOT NULL,
+                component_id INT NOT NULL,
+                route VARCHAR(255) NOT NULL DEFAULT '',
+                payload_length INT NOT NULL,
+                checksum VARCHAR(32) NOT NULL,
+                raw_packet_hex LONGTEXT NOT NULL,
                 FOREIGN KEY (log_file_id) REFERENCES log_files(id) ON DELETE CASCADE,
                 FOREIGN KEY (message_type_id) REFERENCES message_types(id)
-            );
+            ) ENGINE=InnoDB;
 
             CREATE TABLE IF NOT EXISTS message_fields (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id INTEGER NOT NULL,
-                field_name TEXT NOT NULL,
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                message_id BIGINT NOT NULL,
+                field_name VARCHAR(255) NOT NULL,
                 value_text TEXT NOT NULL,
-                numeric_value REAL NULL,
-                unit TEXT NOT NULL DEFAULT '',
+                numeric_value DOUBLE NULL,
+                unit VARCHAR(64) NOT NULL DEFAULT '',
                 FOREIGN KEY (message_id) REFERENCES mavlink_messages(id) ON DELETE CASCADE
-            );
+            ) ENGINE=InnoDB;
 
             CREATE TABLE IF NOT EXISTS user_variables (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                name VARCHAR(255) NOT NULL,
                 value_text TEXT NOT NULL,
-                data_type TEXT NOT NULL DEFAULT 'text',
-                notes TEXT NOT NULL DEFAULT ''
-            );
+                data_type VARCHAR(64) NOT NULL DEFAULT 'text',
+                notes TEXT NOT NULL
+            ) ENGINE=InnoDB;
 
             CREATE TABLE IF NOT EXISTS message_definitions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                message_id INTEGER NOT NULL UNIQUE,
-                name TEXT NOT NULL,
-                dialect TEXT NOT NULL,
-                payload_length INTEGER NOT NULL,
-                crc_extra INTEGER NOT NULL,
-                source_file TEXT NOT NULL,
-                notes TEXT NOT NULL DEFAULT ''
-            );
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                message_id INT NOT NULL UNIQUE,
+                name VARCHAR(255) NOT NULL,
+                dialect VARCHAR(255) NOT NULL,
+                payload_length INT NOT NULL,
+                crc_extra INT NOT NULL,
+                source_file VARCHAR(1024) NOT NULL,
+                notes TEXT NOT NULL
+            ) ENGINE=InnoDB;
 
             CREATE TABLE IF NOT EXISTS field_definitions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                definition_id INTEGER NOT NULL,
-                field_name TEXT NOT NULL,
-                value_type TEXT NOT NULL,
-                array_length INTEGER NOT NULL,
-                payload_offset INTEGER NOT NULL,
-                unit TEXT NOT NULL DEFAULT '',
-                description TEXT NOT NULL DEFAULT '',
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                definition_id BIGINT NOT NULL,
+                field_name VARCHAR(255) NOT NULL,
+                value_type VARCHAR(64) NOT NULL,
+                array_length INT NOT NULL,
+                payload_offset INT NOT NULL,
+                unit VARCHAR(64) NOT NULL DEFAULT '',
+                description TEXT NOT NULL,
                 FOREIGN KEY (definition_id) REFERENCES message_definitions(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS ix_mavlink_messages_log ON mavlink_messages(log_file_id);
-            CREATE INDEX IF NOT EXISTS ix_mavlink_messages_type ON mavlink_messages(message_type_id);
-            CREATE INDEX IF NOT EXISTS ix_message_fields_message ON message_fields(message_id);
-            CREATE INDEX IF NOT EXISTS ix_message_fields_name ON message_fields(field_name);
-            CREATE INDEX IF NOT EXISTS ix_field_definitions_definition ON field_definitions(definition_id);
+            ) ENGINE=InnoDB;
             """, "schema");
 
-        // Einfache Migrationen fuer bestehende lokale Datenbanken. SQLite kann Spalten
+        EnsureIndex(connection, "ix_mavlink_messages_log", "mavlink_messages", "log_file_id");
+        EnsureIndex(connection, "ix_mavlink_messages_type", "mavlink_messages", "message_type_id");
+        EnsureIndex(connection, "ix_message_fields_message", "message_fields", "message_id");
+        EnsureIndex(connection, "ix_message_fields_name", "message_fields", "field_name");
+        EnsureIndex(connection, "ix_field_definitions_definition", "field_definitions", "definition_id");
+
+        // Einfache Migrationen fuer bestehende lokale Datenbanken. MySQL kann Spalten
         // mit ALTER TABLE ADD COLUMN ergaenzen; existiert die Spalte bereits, wird der
         // bekannte Fehler abgefangen und nur im Debug-Log notiert.
-        TryAddColumn(connection, "message_types", "dialect", "TEXT NOT NULL DEFAULT ''");
-        TryAddColumn(connection, "mavlink_messages", "route", "TEXT NOT NULL DEFAULT ''");
-        TryAddColumn(connection, "mavlink_messages", "packet_time_ms", "INTEGER NOT NULL DEFAULT 0");
-        TryAddColumn(connection, "mavlink_messages", "packet_timestamp", "TEXT NOT NULL DEFAULT ''");
+        TryAddColumn(connection, "message_types", "dialect", "VARCHAR(255) NOT NULL DEFAULT ''");
+        TryAddColumn(connection, "mavlink_messages", "route", "VARCHAR(255) NOT NULL DEFAULT ''");
+        TryAddColumn(connection, "mavlink_messages", "packet_time_ms", "BIGINT NOT NULL DEFAULT 0");
+        TryAddColumn(connection, "mavlink_messages", "packet_timestamp", "VARCHAR(64) NOT NULL DEFAULT ''");
         ExecuteNonQuery(connection, """
             UPDATE mavlink_messages
             SET packet_time_ms = packet_index
@@ -158,13 +189,13 @@ public sealed class FlightLogDatabase
         // Der komplette Import laeuft in einer Transaktion. Entweder werden Log-Datei,
         // Nachrichten und Felder zusammen geschrieben, oder bei einem Fehler gar nichts.
         var importStarted = DateTimeOffset.Now;
-        var logId = InsertLogFile(connection, path, frames.Count, importStarted);
+        var logId = InsertLogFile(connection, transaction, path, frames.Count, importStarted);
         var writtenFields = 0;
         foreach (var frame in frames)
         {
-            var messageTypeId = EnsureMessageType(connection, frame.MessageId);
+            var messageTypeId = EnsureMessageType(connection, transaction, frame.MessageId);
             packetTimings.TryGetValue(frame.PacketIndex, out var timing);
-            var messageId = InsertMessage(connection, logId, messageTypeId, frame, importStarted, timing);
+            var messageId = InsertMessage(connection, transaction, logId, messageTypeId, frame, importStarted, timing);
             definitions.TryGetValue(frame.MessageId, out var fieldDefinitions);
 
             // DynamicMavlinkDecoder nutzt gespeicherte Header-Definitionen. Falls keine
@@ -172,7 +203,7 @@ public sealed class FlightLogDatabase
             // bekannte Standardfelder oder payload_hex.
             foreach (var field in DynamicMavlinkDecoder.Decode(frame, fieldDefinitions ?? []))
             {
-                InsertField(connection, messageId, field);
+                InsertField(connection, transaction, messageId, field);
                 writtenFields++;
             }
         }
@@ -191,16 +222,16 @@ public sealed class FlightLogDatabase
 
         foreach (var definition in definitions)
         {
-            var definitionId = UpsertDefinition(connection, definition.Message);
+            var definitionId = UpsertDefinition(connection, transaction, definition.Message);
             // Felddefinitionen werden komplett ersetzt, weil sich Offsets oder Typen
             // zwischen Header-Versionen aendern koennen.
-            DeleteDefinitionFields(connection, definitionId);
+            DeleteDefinitionFields(connection, transaction, definitionId);
             foreach (var field in definition.Fields)
             {
-                InsertFieldDefinition(connection, definitionId, field);
+                InsertFieldDefinition(connection, transaction, definitionId, field);
             }
 
-            EnsureMessageType(connection, definition.Message.MessageId);
+            EnsureMessageType(connection, transaction, definition.Message.MessageId);
         }
 
         transaction.Commit();
@@ -249,11 +280,11 @@ public sealed class FlightLogDatabase
                    m.payload_length, m.checksum
             FROM mavlink_messages m
             JOIN message_types t ON t.id = m.message_type_id
-            WHERE m.log_file_id = $logId
+            WHERE m.log_file_id = @logId
             ORDER BY m.packet_index
             LIMIT 5000;
             """;
-        command.Parameters.AddWithValue("$logId", logId);
+        command.Parameters.AddWithValue("@logId", logId);
         using var reader = command.ExecuteReader();
         var records = new List<MavlinkMessageRecord>();
         while (reader.Read())
@@ -293,11 +324,11 @@ public sealed class FlightLogDatabase
             FROM message_fields f
             JOIN mavlink_messages m ON m.id = f.message_id
             JOIN message_types t ON t.id = m.message_type_id
-            WHERE m.log_file_id = $logId
+            WHERE m.log_file_id = @logId
             ORDER BY m.packet_time_ms, m.packet_index, t.message_id, f.field_name
             LIMIT 20000;
             """;
-        command.Parameters.AddWithValue("$logId", logId);
+        command.Parameters.AddWithValue("@logId", logId);
         using var reader = command.ExecuteReader();
         var records = new List<LogVariableRecord>();
         while (reader.Read())
@@ -375,10 +406,10 @@ public sealed class FlightLogDatabase
             FROM message_fields f
             JOIN mavlink_messages m ON m.id = f.message_id
             JOIN message_types t ON t.id = m.message_type_id
-            WHERE f.message_id = $messageId
+            WHERE f.message_id = @messageId
             ORDER BY f.id;
             """;
-        command.Parameters.AddWithValue("$messageId", messageId);
+        command.Parameters.AddWithValue("@messageId", messageId);
         using var reader = command.ExecuteReader();
         var records = new List<MessageFieldRecord>();
         while (reader.Read())
@@ -406,7 +437,7 @@ public sealed class FlightLogDatabase
         command.CommandText = """
             SELECT id, name, value_text, data_type, notes
             FROM user_variables
-            ORDER BY name COLLATE NOCASE, id;
+            ORDER BY name, id;
             """;
         using var reader = command.ExecuteReader();
         var records = new List<UserVariableRecord>();
@@ -433,7 +464,7 @@ public sealed class FlightLogDatabase
         command.CommandText = """
             SELECT id, message_id, name, dialect, payload_length, crc_extra, source_file, notes
             FROM message_definitions
-            ORDER BY dialect COLLATE NOCASE, message_id;
+            ORDER BY dialect, message_id;
             """;
         using var reader = command.ExecuteReader();
         var records = new List<MavlinkMessageDefinitionRecord>();
@@ -463,10 +494,10 @@ public sealed class FlightLogDatabase
         command.CommandText = """
             SELECT id, definition_id, field_name, value_type, array_length, payload_offset, unit, description
             FROM field_definitions
-            WHERE definition_id = $definitionId
+            WHERE definition_id = @definitionId
             ORDER BY payload_offset, id;
             """;
-        command.Parameters.AddWithValue("$definitionId", definitionId);
+        command.Parameters.AddWithValue("@definitionId", definitionId);
         using var reader = command.ExecuteReader();
         var records = new List<MavlinkFieldDefinitionRecord>();
         while (reader.Read())
@@ -493,23 +524,23 @@ public sealed class FlightLogDatabase
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE message_definitions
-            SET message_id = $messageId,
-                name = $name,
-                dialect = $dialect,
-                payload_length = $length,
-                crc_extra = $crc,
-                source_file = $sourceFile,
-                notes = $notes
-            WHERE id = $id;
+            SET message_id = @messageId,
+                name = @name,
+                dialect = @dialect,
+                payload_length = @length,
+                crc_extra = @crc,
+                source_file = @sourceFile,
+                notes = @notes
+            WHERE id = @id;
             """;
-        command.Parameters.AddWithValue("$messageId", definition.MessageId);
-        command.Parameters.AddWithValue("$name", definition.Name.Trim());
-        command.Parameters.AddWithValue("$dialect", definition.Dialect.Trim());
-        command.Parameters.AddWithValue("$length", definition.PayloadLength);
-        command.Parameters.AddWithValue("$crc", definition.CrcExtra);
-        command.Parameters.AddWithValue("$sourceFile", definition.SourceFile.Trim());
-        command.Parameters.AddWithValue("$notes", definition.Notes.Trim());
-        command.Parameters.AddWithValue("$id", definition.Id);
+        command.Parameters.AddWithValue("@messageId", definition.MessageId);
+        command.Parameters.AddWithValue("@name", definition.Name.Trim());
+        command.Parameters.AddWithValue("@dialect", definition.Dialect.Trim());
+        command.Parameters.AddWithValue("@length", definition.PayloadLength);
+        command.Parameters.AddWithValue("@crc", definition.CrcExtra);
+        command.Parameters.AddWithValue("@sourceFile", definition.SourceFile.Trim());
+        command.Parameters.AddWithValue("@notes", definition.Notes.Trim());
+        command.Parameters.AddWithValue("@id", definition.Id);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"UPDATE message_definitions id={definition.Id}");
     }
@@ -520,21 +551,21 @@ public sealed class FlightLogDatabase
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE field_definitions
-            SET field_name = $name,
-                value_type = $type,
-                array_length = $arrayLength,
-                payload_offset = $offset,
-                unit = $unit,
-                description = $description
-            WHERE id = $id;
+            SET field_name = @name,
+                value_type = @type,
+                array_length = @arrayLength,
+                payload_offset = @offset,
+                unit = @unit,
+                description = @description
+            WHERE id = @id;
             """;
-        command.Parameters.AddWithValue("$name", field.FieldName.Trim());
-        command.Parameters.AddWithValue("$type", field.ValueType.Trim());
-        command.Parameters.AddWithValue("$arrayLength", field.ArrayLength);
-        command.Parameters.AddWithValue("$offset", field.PayloadOffset);
-        command.Parameters.AddWithValue("$unit", field.Unit.Trim());
-        command.Parameters.AddWithValue("$description", field.Description.Trim());
-        command.Parameters.AddWithValue("$id", field.Id);
+        command.Parameters.AddWithValue("@name", field.FieldName.Trim());
+        command.Parameters.AddWithValue("@type", field.ValueType.Trim());
+        command.Parameters.AddWithValue("@arrayLength", field.ArrayLength);
+        command.Parameters.AddWithValue("@offset", field.PayloadOffset);
+        command.Parameters.AddWithValue("@unit", field.Unit.Trim());
+        command.Parameters.AddWithValue("@description", field.Description.Trim());
+        command.Parameters.AddWithValue("@id", field.Id);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"UPDATE field_definitions id={field.Id}");
     }
@@ -543,8 +574,8 @@ public sealed class FlightLogDatabase
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM message_definitions WHERE id = $id;";
-        command.Parameters.AddWithValue("$id", id);
+        command.CommandText = "DELETE FROM message_definitions WHERE id = @id;";
+        command.Parameters.AddWithValue("@id", id);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"DELETE message_definitions id={id}");
     }
@@ -553,8 +584,8 @@ public sealed class FlightLogDatabase
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM field_definitions WHERE id = $id;";
-        command.Parameters.AddWithValue("$id", id);
+        command.CommandText = "DELETE FROM field_definitions WHERE id = @id;";
+        command.Parameters.AddWithValue("@id", id);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"DELETE field_definitions id={id}");
     }
@@ -565,17 +596,17 @@ public sealed class FlightLogDatabase
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE message_fields
-            SET field_name = $name,
-                value_text = $value,
-                numeric_value = $numericValue,
-                unit = $unit
-            WHERE id = $id;
+            SET field_name = @name,
+                value_text = @value,
+                numeric_value = @numericValue,
+                unit = @unit
+            WHERE id = @id;
             """;
-        command.Parameters.AddWithValue("$name", field.FieldName.Trim());
-        command.Parameters.AddWithValue("$value", field.ValueText.Trim());
-        command.Parameters.AddWithValue("$numericValue", (object?)field.NumericValue ?? DBNull.Value);
-        command.Parameters.AddWithValue("$unit", field.Unit.Trim());
-        command.Parameters.AddWithValue("$id", field.Id);
+        command.Parameters.AddWithValue("@name", field.FieldName.Trim());
+        command.Parameters.AddWithValue("@value", field.ValueText.Trim());
+        command.Parameters.AddWithValue("@numericValue", (object?)field.NumericValue ?? DBNull.Value);
+        command.Parameters.AddWithValue("@unit", field.Unit.Trim());
+        command.Parameters.AddWithValue("@id", field.Id);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"UPDATE message_fields id={field.Id}");
     }
@@ -584,8 +615,8 @@ public sealed class FlightLogDatabase
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM message_fields WHERE id = $id;";
-        command.Parameters.AddWithValue("$id", fieldId);
+        command.CommandText = "DELETE FROM message_fields WHERE id = @id;";
+        command.Parameters.AddWithValue("@id", fieldId);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"DELETE message_fields id={fieldId}");
     }
@@ -600,29 +631,28 @@ public sealed class FlightLogDatabase
         {
             command.CommandText = """
                 INSERT INTO user_variables (name, value_text, data_type, notes)
-                VALUES ($name, $value, $type, $notes)
-                RETURNING id;
+                VALUES (@name, @value, @type, @notes)
                 """;
         }
         else
         {
             command.CommandText = """
                 UPDATE user_variables
-                SET name = $name,
-                    value_text = $value,
-                    data_type = $type,
-                    notes = $notes
-                WHERE id = $id
-                RETURNING id;
+                SET name = @name,
+                    value_text = @value,
+                    data_type = @type,
+                    notes = @notes
+                WHERE id = @id
                 """;
-            command.Parameters.AddWithValue("$id", variable.Id);
+            command.Parameters.AddWithValue("@id", variable.Id);
         }
 
-        command.Parameters.AddWithValue("$name", variable.Name.Trim());
-        command.Parameters.AddWithValue("$value", variable.ValueText.Trim());
-        command.Parameters.AddWithValue("$type", string.IsNullOrWhiteSpace(variable.DataType) ? "text" : variable.DataType.Trim());
-        command.Parameters.AddWithValue("$notes", variable.Notes.Trim());
-        var id = (long)command.ExecuteScalar()!;
+        command.Parameters.AddWithValue("@name", variable.Name.Trim());
+        command.Parameters.AddWithValue("@value", variable.ValueText.Trim());
+        command.Parameters.AddWithValue("@type", string.IsNullOrWhiteSpace(variable.DataType) ? "text" : variable.DataType.Trim());
+        command.Parameters.AddWithValue("@notes", variable.Notes.Trim());
+        command.ExecuteNonQuery();
+        var id = variable.Id == 0 ? command.LastInsertedId : variable.Id;
         Log("SQL WRITE", variable.Id == 0 ? $"INSERT user_variables id={id}" : $"UPDATE user_variables id={id}");
         return id;
     }
@@ -631,20 +661,20 @@ public sealed class FlightLogDatabase
     {
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM user_variables WHERE id = $id;";
-        command.Parameters.AddWithValue("$id", variableId);
+        command.CommandText = "DELETE FROM user_variables WHERE id = @id;";
+        command.Parameters.AddWithValue("@id", variableId);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"DELETE user_variables id={variableId}");
     }
 
     public void DeleteLog(long logId)
     {
-        // Wegen aktivierter Foreign Keys entfernt SQLite alle mavlink_messages und
+        // Wegen aktivierter Foreign Keys entfernt MySQL alle mavlink_messages und
         // message_fields zum Log automatisch. Das verhindert verwaiste Detaildaten.
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM log_files WHERE id = $id;";
-        command.Parameters.AddWithValue("$id", logId);
+        command.CommandText = "DELETE FROM log_files WHERE id = @id;";
+        command.Parameters.AddWithValue("@id", logId);
         command.ExecuteNonQuery();
         Log("SQL WRITE", $"DELETE log_files id={logId} CASCADE messages/fields");
     }
@@ -691,21 +721,14 @@ public sealed class FlightLogDatabase
         return result.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<MavlinkFieldDefinitionRecord>)pair.Value);
     }
 
-    private SqliteConnection OpenConnection()
+    private MySqlConnection OpenConnection()
     {
-        var connection = new SqliteConnection($"Data Source={DatabasePath}");
+        var connection = new MySqlConnection(connectionStringBuilder.ConnectionString);
         connection.Open();
-
-        // SQLite erzwingt Foreign Keys nur pro Verbindung, wenn dieses PRAGMA gesetzt ist.
-        // Ohne diese Zeile wuerden ON DELETE CASCADE-Regeln nicht zuverlaessig greifen.
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA foreign_keys = ON;";
-        command.ExecuteNonQuery();
-
         return connection;
     }
 
-    private void ExecuteNonQuery(SqliteConnection connection, string sql, string category)
+    private void ExecuteNonQuery(MySqlConnection connection, string sql, string category)
     {
         using var command = connection.CreateCommand();
         command.CommandText = sql;
@@ -713,64 +736,81 @@ public sealed class FlightLogDatabase
         Log("SQL WRITE", category);
     }
 
-    private void TryAddColumn(SqliteConnection connection, string table, string column, string definition)
+    private void TryAddColumn(MySqlConnection connection, string table, string column, string definition)
     {
         try
         {
             ExecuteNonQuery(connection, $"ALTER TABLE {table} ADD COLUMN {column} {definition};", $"ALTER TABLE {table} ADD COLUMN {column}");
         }
-        catch (SqliteException ex) when (ex.SqliteErrorCode == 1)
+        catch (MySqlException ex) when (ex.Number == 1060)
         {
-            // ErrorCode 1 ist hier der erwartete SQLite-Fehler fuer "duplicate column".
+            // MySQL-Fehler 1060 ist hier der erwartete Fehler fuer "duplicate column".
             Log("SQL", $"column exists: {table}.{column}");
         }
     }
 
-    private long InsertLogFile(SqliteConnection connection, string path, int messageCount, DateTimeOffset importedAt)
+    private void EnsureIndex(MySqlConnection connection, string indexName, string table, string columns)
     {
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO log_files (file_name, path, imported_at, message_count)
-            VALUES ($fileName, $path, $importedAt, $messageCount)
-            RETURNING id;
-            """;
-        command.Parameters.AddWithValue("$fileName", Path.GetFileName(path));
-        command.Parameters.AddWithValue("$path", path);
-        command.Parameters.AddWithValue("$importedAt", importedAt.ToString("yyyy-MM-dd HH:mm:ss zzz"));
-        command.Parameters.AddWithValue("$messageCount", messageCount);
-        return (long)command.ExecuteScalar()!;
+        try
+        {
+            ExecuteNonQuery(connection, $"CREATE INDEX {indexName} ON {table}({columns});", $"CREATE INDEX {indexName}");
+        }
+        catch (MySqlException ex) when (ex.Number == 1061)
+        {
+            // MySQL-Fehler 1061 ist hier der erwartete Fehler fuer "duplicate key name".
+            Log("SQL", $"index exists: {indexName}");
+        }
     }
 
-    private static long EnsureMessageType(SqliteConnection connection, int messageId)
+    private long InsertLogFile(MySqlConnection connection, MySqlTransaction transaction, string path, int messageCount, DateTimeOffset importedAt)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO log_files (file_name, path, imported_at, message_count)
+            VALUES (@fileName, @path, @importedAt, @messageCount)
+            """;
+        command.Parameters.AddWithValue("@fileName", Path.GetFileName(path));
+        command.Parameters.AddWithValue("@path", path);
+        command.Parameters.AddWithValue("@importedAt", importedAt.ToString("yyyy-MM-dd HH:mm:ss zzz"));
+        command.Parameters.AddWithValue("@messageCount", messageCount);
+        command.ExecuteNonQuery();
+        return command.LastInsertedId;
+    }
+
+    private static long EnsureMessageType(MySqlConnection connection, MySqlTransaction transaction, int messageId)
     {
         // message_types normalisiert Message-ID, Name und Dialekt. Importierte
         // mavlink_messages referenzieren diese Tabelle, damit Name/Dialekt nicht in
         // jeder Nachricht wiederholt werden muessen.
-        var definition = GetDefinition(connection, messageId);
+        var definition = GetDefinition(connection, transaction, messageId);
         using var insert = connection.CreateCommand();
+        insert.Transaction = transaction;
         insert.CommandText = """
             INSERT INTO message_types (message_id, name, dialect)
-            VALUES ($messageId, $name, $dialect)
-            ON CONFLICT(message_id) DO UPDATE SET
-                name = excluded.name,
-                dialect = excluded.dialect
-            RETURNING id;
+            VALUES (@messageId, @name, @dialect)
+            ON DUPLICATE KEY UPDATE
+                id = LAST_INSERT_ID(id),
+                name = VALUES(name),
+                dialect = VALUES(dialect);
             """;
-        insert.Parameters.AddWithValue("$messageId", messageId);
-        insert.Parameters.AddWithValue("$name", definition?.Name ?? MavlinkMessageDecoder.GetMessageName(messageId));
-        insert.Parameters.AddWithValue("$dialect", definition?.Dialect ?? "");
-        return (long)insert.ExecuteScalar()!;
+        insert.Parameters.AddWithValue("@messageId", messageId);
+        insert.Parameters.AddWithValue("@name", definition?.Name ?? MavlinkMessageDecoder.GetMessageName(messageId));
+        insert.Parameters.AddWithValue("@dialect", definition?.Dialect ?? "");
+        insert.ExecuteNonQuery();
+        return insert.LastInsertedId;
     }
 
-    private static MavlinkMessageDefinitionRecord? GetDefinition(SqliteConnection connection, int messageId)
+    private static MavlinkMessageDefinitionRecord? GetDefinition(MySqlConnection connection, MySqlTransaction transaction, int messageId)
     {
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT id, message_id, name, dialect, payload_length, crc_extra, source_file, notes
             FROM message_definitions
-            WHERE message_id = $messageId;
+            WHERE message_id = @messageId;
             """;
-        command.Parameters.AddWithValue("$messageId", messageId);
+        command.Parameters.AddWithValue("@messageId", messageId);
         using var reader = command.ExecuteReader();
         if (!reader.Read())
         {
@@ -790,37 +830,38 @@ public sealed class FlightLogDatabase
         };
     }
 
-    private static long InsertMessage(SqliteConnection connection, long logId, long messageTypeId, MavlinkFrame frame, DateTimeOffset importStarted, PacketTiming? timing)
+    private static long InsertMessage(MySqlConnection connection, MySqlTransaction transaction, long logId, long messageTypeId, MavlinkFrame frame, DateTimeOffset importStarted, PacketTiming? timing)
     {
         // Wenn eine Sidecar-Zeitinformation vorhanden ist, wird sie bevorzugt. Sonst
         // nutzt die Anwendung den Paketindex als robuste, monotone Ersatzzeit.
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO mavlink_messages
                 (log_file_id, message_type_id, packet_index, packet_time_ms, packet_timestamp,
                  byte_offset, mavlink_version, sequence,
                  system_id, component_id, route, payload_length, checksum, raw_packet_hex)
             VALUES
-                ($logId, $messageTypeId, $packetIndex, $packetTimeMs, $packetTimestamp,
-                 $byteOffset, $version, $sequence,
-                 $systemId, $componentId, $route, $payloadLength, $checksum, $rawPacketHex)
-            RETURNING id;
+                (@logId, @messageTypeId, @packetIndex, @packetTimeMs, @packetTimestamp,
+                 @byteOffset, @version, @sequence,
+                 @systemId, @componentId, @route, @payloadLength, @checksum, @rawPacketHex)
             """;
-        command.Parameters.AddWithValue("$logId", logId);
-        command.Parameters.AddWithValue("$messageTypeId", messageTypeId);
-        command.Parameters.AddWithValue("$packetIndex", frame.PacketIndex);
-        command.Parameters.AddWithValue("$packetTimeMs", timing?.ElapsedMs ?? frame.PacketIndex);
-        command.Parameters.AddWithValue("$packetTimestamp", timing?.Timestamp ?? importStarted.AddMilliseconds(frame.PacketIndex).ToString("yyyy-MM-dd HH:mm:ss.fff zzz"));
-        command.Parameters.AddWithValue("$byteOffset", frame.ByteOffset);
-        command.Parameters.AddWithValue("$version", frame.Version);
-        command.Parameters.AddWithValue("$sequence", frame.Sequence);
-        command.Parameters.AddWithValue("$systemId", frame.SystemId);
-        command.Parameters.AddWithValue("$componentId", frame.ComponentId);
-        command.Parameters.AddWithValue("$route", RouteFor(frame.SystemId));
-        command.Parameters.AddWithValue("$payloadLength", frame.Payload.Length);
-        command.Parameters.AddWithValue("$checksum", $"0x{frame.Checksum:X4}");
-        command.Parameters.AddWithValue("$rawPacketHex", Convert.ToHexString(frame.RawPacket));
-        return (long)command.ExecuteScalar()!;
+        command.Parameters.AddWithValue("@logId", logId);
+        command.Parameters.AddWithValue("@messageTypeId", messageTypeId);
+        command.Parameters.AddWithValue("@packetIndex", frame.PacketIndex);
+        command.Parameters.AddWithValue("@packetTimeMs", timing?.ElapsedMs ?? frame.PacketIndex);
+        command.Parameters.AddWithValue("@packetTimestamp", timing?.Timestamp ?? importStarted.AddMilliseconds(frame.PacketIndex).ToString("yyyy-MM-dd HH:mm:ss.fff zzz"));
+        command.Parameters.AddWithValue("@byteOffset", frame.ByteOffset);
+        command.Parameters.AddWithValue("@version", frame.Version);
+        command.Parameters.AddWithValue("@sequence", frame.Sequence);
+        command.Parameters.AddWithValue("@systemId", frame.SystemId);
+        command.Parameters.AddWithValue("@componentId", frame.ComponentId);
+        command.Parameters.AddWithValue("@route", RouteFor(frame.SystemId));
+        command.Parameters.AddWithValue("@payloadLength", frame.Payload.Length);
+        command.Parameters.AddWithValue("@checksum", $"0x{frame.Checksum:X4}");
+        command.Parameters.AddWithValue("@rawPacketHex", Convert.ToHexString(frame.RawPacket));
+        command.ExecuteNonQuery();
+        return command.LastInsertedId;
     }
 
     private static string RouteFor(int systemId)
@@ -837,73 +878,78 @@ public sealed class FlightLogDatabase
         };
     }
 
-    private static void InsertField(SqliteConnection connection, long messageId, DecodedField field)
+    private static void InsertField(MySqlConnection connection, MySqlTransaction transaction, long messageId, DecodedField field)
     {
         // numeric_value ist nullable: Textfelder und Arrays bleiben nur als value_text
         // erhalten, echte Zahlen koennen zusaetzlich sortiert/gefiltert werden.
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO message_fields (message_id, field_name, value_text, numeric_value, unit)
-            VALUES ($messageId, $name, $value, $numericValue, $unit);
+            VALUES (@messageId, @name, @value, @numericValue, @unit);
             """;
-        command.Parameters.AddWithValue("$messageId", messageId);
-        command.Parameters.AddWithValue("$name", field.Name);
-        command.Parameters.AddWithValue("$value", field.ValueText);
-        command.Parameters.AddWithValue("$numericValue", (object?)field.NumericValue ?? DBNull.Value);
-        command.Parameters.AddWithValue("$unit", field.Unit);
+        command.Parameters.AddWithValue("@messageId", messageId);
+        command.Parameters.AddWithValue("@name", field.Name);
+        command.Parameters.AddWithValue("@value", field.ValueText);
+        command.Parameters.AddWithValue("@numericValue", (object?)field.NumericValue ?? DBNull.Value);
+        command.Parameters.AddWithValue("@unit", field.Unit);
         command.ExecuteNonQuery();
     }
 
-    private static long UpsertDefinition(SqliteConnection connection, MavlinkMessageDefinitionRecord definition)
+    private static long UpsertDefinition(MySqlConnection connection, MySqlTransaction transaction, MavlinkMessageDefinitionRecord definition)
     {
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO message_definitions
                 (message_id, name, dialect, payload_length, crc_extra, source_file, notes)
             VALUES
-                ($messageId, $name, $dialect, $payloadLength, $crcExtra, $sourceFile, $notes)
-            ON CONFLICT(message_id) DO UPDATE SET
-                name = excluded.name,
-                dialect = excluded.dialect,
-                payload_length = excluded.payload_length,
-                crc_extra = excluded.crc_extra,
-                source_file = excluded.source_file
-            RETURNING id;
+                (@messageId, @name, @dialect, @payloadLength, @crcExtra, @sourceFile, @notes)
+            ON DUPLICATE KEY UPDATE
+                id = LAST_INSERT_ID(id),
+                name = VALUES(name),
+                dialect = VALUES(dialect),
+                payload_length = VALUES(payload_length),
+                crc_extra = VALUES(crc_extra),
+                source_file = VALUES(source_file);
             """;
-        command.Parameters.AddWithValue("$messageId", definition.MessageId);
-        command.Parameters.AddWithValue("$name", definition.Name);
-        command.Parameters.AddWithValue("$dialect", definition.Dialect);
-        command.Parameters.AddWithValue("$payloadLength", definition.PayloadLength);
-        command.Parameters.AddWithValue("$crcExtra", definition.CrcExtra);
-        command.Parameters.AddWithValue("$sourceFile", definition.SourceFile);
-        command.Parameters.AddWithValue("$notes", definition.Notes);
-        return (long)command.ExecuteScalar()!;
+        command.Parameters.AddWithValue("@messageId", definition.MessageId);
+        command.Parameters.AddWithValue("@name", definition.Name);
+        command.Parameters.AddWithValue("@dialect", definition.Dialect);
+        command.Parameters.AddWithValue("@payloadLength", definition.PayloadLength);
+        command.Parameters.AddWithValue("@crcExtra", definition.CrcExtra);
+        command.Parameters.AddWithValue("@sourceFile", definition.SourceFile);
+        command.Parameters.AddWithValue("@notes", definition.Notes);
+        command.ExecuteNonQuery();
+        return command.LastInsertedId;
     }
 
-    private static void DeleteDefinitionFields(SqliteConnection connection, long definitionId)
+    private static void DeleteDefinitionFields(MySqlConnection connection, MySqlTransaction transaction, long definitionId)
     {
         using var command = connection.CreateCommand();
-        command.CommandText = "DELETE FROM field_definitions WHERE definition_id = $definitionId;";
-        command.Parameters.AddWithValue("$definitionId", definitionId);
+        command.Transaction = transaction;
+        command.CommandText = "DELETE FROM field_definitions WHERE definition_id = @definitionId;";
+        command.Parameters.AddWithValue("@definitionId", definitionId);
         command.ExecuteNonQuery();
     }
 
-    private static void InsertFieldDefinition(SqliteConnection connection, long definitionId, MavlinkFieldDefinitionRecord field)
+    private static void InsertFieldDefinition(MySqlConnection connection, MySqlTransaction transaction, long definitionId, MavlinkFieldDefinitionRecord field)
     {
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO field_definitions
                 (definition_id, field_name, value_type, array_length, payload_offset, unit, description)
             VALUES
-                ($definitionId, $fieldName, $valueType, $arrayLength, $payloadOffset, $unit, $description);
+                (@definitionId, @fieldName, @valueType, @arrayLength, @payloadOffset, @unit, @description);
             """;
-        command.Parameters.AddWithValue("$definitionId", definitionId);
-        command.Parameters.AddWithValue("$fieldName", field.FieldName);
-        command.Parameters.AddWithValue("$valueType", field.ValueType);
-        command.Parameters.AddWithValue("$arrayLength", field.ArrayLength);
-        command.Parameters.AddWithValue("$payloadOffset", field.PayloadOffset);
-        command.Parameters.AddWithValue("$unit", field.Unit);
-        command.Parameters.AddWithValue("$description", field.Description);
+        command.Parameters.AddWithValue("@definitionId", definitionId);
+        command.Parameters.AddWithValue("@fieldName", field.FieldName);
+        command.Parameters.AddWithValue("@valueType", field.ValueType);
+        command.Parameters.AddWithValue("@arrayLength", field.ArrayLength);
+        command.Parameters.AddWithValue("@payloadOffset", field.PayloadOffset);
+        command.Parameters.AddWithValue("@unit", field.Unit);
+        command.Parameters.AddWithValue("@description", field.Description);
         command.ExecuteNonQuery();
     }
 
@@ -943,3 +989,125 @@ public sealed class FlightLogDatabase
 }
 
 public sealed record ImportResult(long LogId, int MessageCount, string DatabasePath);
+
+internal static class MySqlServerManager
+{
+    private const string ContainerName = "openhd-flightlog-mysql";
+    private const string ImageName = "mysql:8.4";
+
+    public static void EnsureServerStarted(MySqlConnectionStringBuilder builder, Action<string, string> log)
+    {
+        if (CanConnect(builder))
+        {
+            log("MYSQL", $"server reachable: {builder.Server}:{builder.Port}");
+            return;
+        }
+
+        log("MYSQL", $"server not reachable at {builder.Server}:{builder.Port}; trying Docker");
+        RunDocker(log, "start", ContainerName);
+        if (WaitForServer(builder, TimeSpan.FromSeconds(45), log))
+        {
+            return;
+        }
+
+        RunDocker(
+            log,
+            "run",
+            "--name", ContainerName,
+            "-e", $"MYSQL_ROOT_PASSWORD={builder.Password}",
+            "-e", $"MYSQL_DATABASE={builder.Database}",
+            "-p", $"{builder.Port}:3306",
+            "-d", ImageName);
+
+        if (!WaitForServer(builder, TimeSpan.FromSeconds(120), log))
+        {
+            throw new InvalidOperationException(
+                $"MySQL could not be started automatically. Install/start MySQL on {builder.Server}:{builder.Port}, " +
+                "or install Docker so the app can run the openhd-flightlog-mysql container.");
+        }
+    }
+
+    private static bool WaitForServer(MySqlConnectionStringBuilder builder, TimeSpan timeout, Action<string, string> log)
+    {
+        var deadline = DateTimeOffset.Now.Add(timeout);
+        while (DateTimeOffset.Now < deadline)
+        {
+            if (CanConnect(builder))
+            {
+                log("MYSQL", $"server started: {builder.Server}:{builder.Port}");
+                return true;
+            }
+
+            Thread.Sleep(1000);
+        }
+
+        return false;
+    }
+
+    private static bool CanConnect(MySqlConnectionStringBuilder builder)
+    {
+        try
+        {
+            var serverConnection = new MySqlConnectionStringBuilder(builder.ConnectionString)
+            {
+                Database = "",
+                ConnectionTimeout = 2
+            };
+
+            using var connection = new MySqlConnection(serverConnection.ConnectionString);
+            connection.Open();
+            return true;
+        }
+        catch (MySqlException)
+        {
+            return false;
+        }
+    }
+
+    private static void RunDocker(Action<string, string> log, params string[] arguments)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "docker",
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                }
+            };
+
+            foreach (var argument in arguments)
+            {
+                process.StartInfo.ArgumentList.Add(argument);
+            }
+
+            process.Start();
+            if (!process.WaitForExit(120_000))
+            {
+                process.Kill(entireProcessTree: true);
+                log("MYSQL", "docker command timed out");
+                return;
+            }
+
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            var error = process.StandardError.ReadToEnd().Trim();
+            if (process.ExitCode == 0)
+            {
+                log("MYSQL", string.IsNullOrWhiteSpace(output) ? "docker command finished" : output);
+            }
+            else
+            {
+                log("MYSQL", string.IsNullOrWhiteSpace(error) ? $"docker exit code {process.ExitCode}" : error);
+            }
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            log("MYSQL", $"docker unavailable: {ex.Message}");
+        }
+    }
+}
+

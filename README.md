@@ -2,7 +2,7 @@
 
 OpenHD FlightLog Studio ist eine Avalonia-Desktopanwendung zum Importieren,
 Dekodieren und Anzeigen von OpenHD-/MAVLink-Logdateien. Die Anwendung liest rohe
-MAVLink-Frames aus Logdateien, speichert sie in einer lokalen SQLite-Datenbank
+MAVLink-Frames aus Logdateien, speichert sie in einer lokalen MySQL-Datenbank
 und zeigt Logs, Nachrichten, dekodierte Felder, automatische Variablen,
 manuelle Notizen, MAVLink-Definitionen und Debug-Ereignisse in mehreren Tabs an.
 
@@ -19,7 +19,7 @@ manuelle Notizen, MAVLink-Definitionen und Debug-Ereignisse in mehreren Tabs an.
 - Faellt fuer einige bekannte Standard-MAVLink-Nachrichten auf einen eingebauten
   Decoder zurueck.
 - Speichert alle importierten Logs, Messages, Felder und Definitionen lokal in
-  SQLite.
+  MySQL.
 - Erzeugt eine OSD-Replay-Ansicht aus bekannten OpenHD-Feldern wie RSSI, SNR,
   Link Quality, Bitrate, Paketverlust und Temperatur.
 - Erlaubt das Bearbeiten und Loeschen dekodierter Felder.
@@ -37,7 +37,7 @@ OpenHdFlightLog/
   Views/MainWindow.axaml             UI-Layout
   Views/MainWindow.axaml.cs          Dateiauswahl und View-spezifische Logik
   ViewModels/MainWindowViewModel.cs  Commands, UI-Zustand und Importsteuerung
-  Services/FlightLogDatabase.cs      SQLite-Schema, Import und Abfragen
+  Services/FlightLogDatabase.cs      MySQL-Schema, Import und Abfragen
   Services/MavlinkParser.cs          MAVLink-v1/v2-Frameparser
   Services/DynamicMavlinkDecoder.cs  Dekodierung anhand gespeicherter Feldlayouts
   Services/MavlinkDefinitionLoader.cs Parser fuer OpenHD-MAVLink-C-Header
@@ -50,6 +50,8 @@ OpenHdFlightLog/
 
 - .NET SDK 9.0 oder neuer
 - Windows, Linux oder macOS mit Avalonia-kompatibler Desktopumgebung
+- MySQL auf `127.0.0.1:3306` oder Docker. Wenn kein MySQL erreichbar ist,
+  startet die App automatisch den Docker-Container `openhd-flightlog-mysql`.
 - Optional: lokaler OpenHD-Checkout, wenn OpenHD-spezifische MAVLink-Definitionen
   geladen werden sollen
 
@@ -116,18 +118,26 @@ OpenHdFlightLog/bin/Release/net9.0/win-x64/publish/
    OpenHD-Header einzulesen.
 4. `FlightLogDatabase.ImportLogAsync` liest die Datei als Bytes.
 5. `MavlinkParser.Parse` sucht MAVLink-v1/v2-Frames.
-6. `FlightLogDatabase` laedt Felddefinitionen aus SQLite.
+6. `FlightLogDatabase` laedt Felddefinitionen aus MySQL.
 7. `DynamicMavlinkDecoder` dekodiert jedes Paket.
-8. Logdatei, Messages und Felder werden in einer SQLite-Transaktion gespeichert.
+8. Logdatei, Messages und Felder werden in einer MySQL-Transaktion gespeichert.
 9. Die UI wird neu geladen und zeigt das importierte Log an.
 
 ## Datenbank
 
-Die Datenbank liegt nicht im Projektordner, sondern im lokalen Benutzerprofil:
+Die Datenbank liegt in MySQL. Standardwerte:
 
 ```text
-%LOCALAPPDATA%\OpenHdFlightLog\flightlogs.sqlite
+Host: 127.0.0.1
+Port: 3306
+Database: openhd_flightlog
+User: root
+Password: openhd
 ```
+
+Diese Werte koennen ueber `OPENHD_MYSQL_HOST`, `OPENHD_MYSQL_PORT`,
+`OPENHD_MYSQL_DATABASE`, `OPENHD_MYSQL_USER` und `OPENHD_MYSQL_PASSWORD`
+ueberschrieben werden.
 
 Eine sehr detaillierte Beschreibung der Datenbankanbindung, Tabellen,
 Fremdschluessel, Importtransaktion und Abfragewege steht in
