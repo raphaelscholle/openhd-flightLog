@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenHD FlightLog Studio - 3-Schichten-Dokumentation</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 12mm 13mm 14mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: #17202a;
+      background: #eef2f6;
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 10.6pt;
+      line-height: 1.45;
+    }
+
+    .page {
+      padding: 0;
+      page-break-after: auto;
+      background: #ffffff;
+    }
+
+    .cover {
+      min-height: 260mm;
+      padding: 22mm 20mm;
+      page-break-after: always;
+      color: #f5fbff;
+      background:
+        linear-gradient(135deg, rgba(7, 19, 31, 0.94), rgba(14, 46, 70, 0.94)),
+        radial-gradient(circle at 80% 15%, rgba(42, 170, 255, 0.3), transparent 34%),
+        #08131f;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cover::after {
+      content: "";
+      position: absolute;
+      inset: auto -25mm -28mm auto;
+      width: 120mm;
+      height: 120mm;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      transform: rotate(12deg);
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 9pt;
+      color: #8bd3ff;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 14mm 0 6mm;
+      font-size: 34pt;
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      width: 82%;
+      color: #dcecf7;
+      font-size: 15pt;
+      line-height: 1.45;
+    }
+
+    .cover-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6mm;
+      margin-top: 22mm;
+    }
+
+    .cover-card {
+      padding: 6mm;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 4mm;
+    }
+
+    .cover-card strong {
+      display: block;
+      margin-bottom: 1.8mm;
+      color: #ffffff;
+    }
+
+    header.section-header {
+      margin-bottom: 8mm;
+      padding-bottom: 4mm;
+      border-bottom: 1px solid #d4dde7;
+    }
+
+    h2 {
+      margin: 0 0 2mm;
+      color: #0b2d45;
+      font-size: 21pt;
+      line-height: 1.15;
+    }
+
+    h3 {
+      margin: 6mm 0 2.2mm;
+      color: #174765;
+      font-size: 13.6pt;
+    }
+
+    p {
+      margin: 0 0 3mm;
+    }
+
+    ul {
+      margin: 0 0 4mm 5mm;
+      padding: 0;
+    }
+
+    li {
+      margin: 1.2mm 0;
+    }
+
+    code {
+      padding: 0.3mm 1mm;
+      border-radius: 1mm;
+      background: #edf3f8;
+      color: #0b3554;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 9.4pt;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 3mm 0 5mm;
+      font-size: 9.6pt;
+    }
+
+    th {
+      color: #ffffff;
+      background: #123b57;
+      text-align: left;
+    }
+
+    th, td {
+      padding: 2.4mm 2.6mm;
+      border: 1px solid #d2dce5;
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td {
+      background: #f7fafc;
+    }
+
+    .muted {
+      color: #536878;
+    }
+
+    .note {
+      margin: 4mm 0;
+      padding: 4mm 5mm;
+      border-left: 4px solid #1f7caf;
+      background: #eef7fc;
+      color: #17384c;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6mm;
+    }
+
+    .layer-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 4mm;
+      margin: 5mm 0;
+    }
+
+    .layer {
+      min-height: 39mm;
+      padding: 4mm;
+      border: 1px solid #c8d7e3;
+      border-radius: 3mm;
+      background: #f8fbfd;
+    }
+
+    .layer h3 {
+      margin-top: 0;
+      font-size: 12.3pt;
+    }
+
+    .diagram {
+      margin: 4mm 0 6mm;
+      padding: 4mm;
+      border: 1px solid #d5e0e8;
+      border-radius: 3mm;
+      background: #fbfdff;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: 1fr 11mm 1fr 11mm 1fr;
+      align-items: center;
+      gap: 2mm;
+      text-align: center;
+      margin: 4mm 0;
+    }
+
+    .flow-box {
+      min-height: 25mm;
+      padding: 4mm 3mm;
+      border-radius: 3mm;
+      color: #ffffff;
+      background: #123b57;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 1.2mm;
+    }
+
+    .flow-box:nth-child(3) {
+      background: #1f6d83;
+    }
+
+    .flow-box:nth-child(5) {
+      background: #39566b;
+    }
+
+    .arrow {
+      color: #1f6d83;
+      font-size: 20pt;
+      font-weight: 700;
+    }
+
+    .step-list {
+      counter-reset: step;
+      margin: 4mm 0;
+      padding: 0;
+    }
+
+    .step-list li {
+      counter-increment: step;
+      list-style: none;
+      display: grid;
+      grid-template-columns: 8mm 1fr;
+      gap: 3mm;
+      margin: 2mm 0;
+      align-items: start;
+    }
+
+    .step-list li::before {
+      content: counter(step);
+      width: 7mm;
+      height: 7mm;
+      border-radius: 50%;
+      color: #ffffff;
+      background: #1f7caf;
+      text-align: center;
+      line-height: 7mm;
+      font-weight: 700;
+      font-size: 8.5pt;
+    }
+
+    .image-frame {
+      margin: 4mm 0;
+      padding: 3mm;
+      border: 1px solid #d5e0e8;
+      background: #ffffff;
+    }
+
+    .image-frame img {
+      display: block;
+      max-width: 100%;
+      max-height: 132mm;
+      margin: 0 auto;
+    }
+
+    .small {
+      font-size: 9.3pt;
+    }
+
+    .footer {
+      margin-top: 5mm;
+      padding-top: 2.5mm;
+      border-top: 1px solid #d4dde7;
+      color: #617384;
+      font-size: 8.8pt;
+    }
+
+    @media print {
+      body {
+        background: #ffffff;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="eyebrow">Projekt-Dokumentation</div>
+    <h1>OpenHD FlightLog Studio</h1>
+    <p class="subtitle">3-Schichten-Architektur, Datenbankmodell und Funktionsweise eines Desktop-Tools fuer OpenHD-/MAVLink-Logdateien.</p>
+    <div class="cover-grid">
+      <div class="cover-card">
+        <strong>Technologien</strong>
+        C# / .NET 9, Avalonia UI, MySQL, Docker
+      </div>
+      <div class="cover-card">
+        <strong>Architektur</strong>
+        Darstellungsschicht, Datenverarbeitungsschicht, Datenhaltungsschicht
+      </div>
+      <div class="cover-card">
+        <strong>Ziel</strong>
+        Rohdaten importieren, dekodieren, speichern und auswertbar anzeigen
+      </div>
+      <div class="cover-card">
+        <strong>Datenbank</strong>
+        MySQL <code>openhd_flightlog</code>, optional per Docker gestartet
+      </div>
+    </div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>1. Projektueberblick</h2>
+      <p class="muted">Vom binaeren MAVLink-Log zur strukturierten Datenbankansicht.</p>
+    </header>
+
+    <p>OpenHD FlightLog Studio ist eine Desktop-Anwendung zum Analysieren von OpenHD- und MAVLink-Logdateien. Solche Logdateien enthalten rohe binaere Paketdaten. Direkt im Editor sind diese Daten kaum verstaendlich, weil sie aus Headern, Payloads, Checksummen und optionalen Zusatzdaten bestehen.</p>
+
+    <p>Das Tool importiert diese Dateien, erkennt MAVLink-v1- und MAVLink-v2-Frames, dekodiert deren Inhalte und speichert die Ergebnisse in einer lokalen MySQL-Datenbank. Danach koennen die Daten in Tabellen angezeigt, durchsucht und teilweise bearbeitet werden.</p>
+
+    <h3>Zentrale Ziele</h3>
+    <ul>
+      <li>Rohdaten aus Logdateien in strukturierte Daten umwandeln.</li>
+      <li>MAVLink-Nachrichten und Felder lesbar machen.</li>
+      <li>Importierte Logs dauerhaft in einer relationalen Datenbank speichern.</li>
+      <li>OpenHD-spezifische MAVLink-Definitionen verwenden.</li>
+      <li>Import-, SQL- und Debug-Schritte nachvollziehbar anzeigen.</li>
+    </ul>
+
+    <h3>Projektdaten</h3>
+    <table>
+      <tr><th>Punkt</th><th>Umsetzung</th></tr>
+      <tr><td>Anwendungstyp</td><td>Desktop-Anwendung</td></tr>
+      <tr><td>UI-Framework</td><td>Avalonia UI</td></tr>
+      <tr><td>Programmiersprache</td><td>C# auf .NET 9</td></tr>
+      <tr><td>Datenbank</td><td>MySQL <code>openhd_flightlog</code></td></tr>
+      <tr><td>Datenbankzugriff</td><td><code>MySqlConnector</code></td></tr>
+      <tr><td>Datenbankbereitstellung</td><td>lokal oder automatisch ueber Docker</td></tr>
+    </table>
+
+    <div class="footer">OpenHD FlightLog Studio - Dokumentation</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>2. 3-Schichten-Architektur</h2>
+      <p class="muted">Die Software ist nach Darstellung, Verarbeitung und Speicherung getrennt.</p>
+    </header>
+
+    <p>Die vorgegebene Architektur teilt die Software in drei Schichten. Diese Schichten muessen nicht als drei getrennte Programme laufen. Entscheidend ist, dass die Verantwortlichkeiten getrennt sind.</p>
+
+    <div class="layer-grid">
+      <div class="layer">
+        <h3>Darstellungsschicht</h3>
+        <p>Implementiert die Benutzeroberflaeche: Fenster, Buttons, Tabellen, Tabs und Dateiauswahl.</p>
+        <p><code>MainWindow.axaml</code><br><code>MainWindow.axaml.cs</code></p>
+      </div>
+      <div class="layer">
+        <h3>Datenverarbeitung</h3>
+        <p>Bereitet Daten auf, verarbeitet Logdateien, dekodiert MAVLink-Pakete und steuert Abläufe.</p>
+        <p><code>MainWindowViewModel.cs</code><br><code>FlightLogImportService.cs</code></p>
+      </div>
+      <div class="layer">
+        <h3>Datenhaltung</h3>
+        <p>Speichert persistente Daten, fuehrt SQL-Abfragen aus und verwaltet Transaktionen.</p>
+        <p><code>FlightLogDatabase.cs</code><br>MySQL</p>
+      </div>
+    </div>
+
+    <div class="diagram">
+      <div class="flow">
+        <div class="flow-box"><strong>View</strong><span>Avalonia GUI</span></div>
+        <div class="arrow">→</div>
+        <div class="flow-box"><strong>Datenverarbeitung</strong><span>ViewModel + Services</span></div>
+        <div class="arrow">→</div>
+        <div class="flow-box"><strong>Datenhaltung</strong><span>FlightLogDatabase + MySQL</span></div>
+      </div>
+    </div>
+
+    <table>
+      <tr><th>Schicht</th><th>Projektdateien</th><th>Aufgabe</th></tr>
+      <tr><td>Darstellungsschicht</td><td><code>MainWindow.axaml</code>, <code>MainWindow.axaml.cs</code></td><td>GUI, Tabs, Buttons, Tabellen, Dateiauswahl</td></tr>
+      <tr><td>Datenverarbeitungsschicht</td><td><code>MainWindowViewModel.cs</code>, <code>FlightLogImportService.cs</code>, Parser/Decoder</td><td>Importsteuerung, Parsen, Dekodieren, Daten vorbereiten</td></tr>
+      <tr><td>Datenhaltungsschicht</td><td><code>FlightLogDatabase.cs</code>, MySQL</td><td>Schema, SQL-Abfragen, Transaktionen, Speichern und Laden</td></tr>
+    </table>
+
+    <div class="note">Die Anwendung ist keine Web-App und benoetigt keinen separaten HTTP-Backend-Server. Die Datenverarbeitungsschicht laeuft innerhalb der Desktop-App, ist aber im Code getrennt umgesetzt.</div>
+    <div class="footer">3-Schichten-Architektur</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>3. Umsetzung im Code</h2>
+      <p class="muted">Die Klassen sind so getrennt, dass jede Schicht eine klare Aufgabe hat.</p>
+    </header>
+
+    <h3>Darstellungsschicht</h3>
+    <p>Die View ist die grafische Oberflaeche. Sie zeigt Daten an und nimmt Benutzeraktionen entgegen. SQL-Abfragen oder MAVLink-Dekodierung finden dort nicht statt.</p>
+    <ul>
+      <li><code>MainWindow.axaml</code>: Layout mit Buttons, Tabs, DataGrids, Statusleiste.</li>
+      <li><code>MainWindow.axaml.cs</code>: Avalonia-spezifische Dateiauswahl.</li>
+    </ul>
+
+    <h3>Datenverarbeitungsschicht</h3>
+    <p>Diese Schicht enthaelt die fachliche Logik. Nach dem Umbau liegt die Importlogik nicht mehr in der Datenbankklasse, sondern im <code>FlightLogImportService</code>.</p>
+    <ul>
+      <li><code>MainWindowViewModel.cs</code>: Commands, UI-Zustand, Auswahlreaktionen.</li>
+      <li><code>FlightLogImportService.cs</code>: Datei lesen, Frames parsen, Felder dekodieren, Importdaten vorbereiten.</li>
+      <li><code>MavlinkParser.cs</code>: MAVLink-v1/v2-Frames aus Bytes extrahieren.</li>
+      <li><code>DynamicMavlinkDecoder.cs</code>: Payloads mit gespeicherten Definitionen dekodieren.</li>
+      <li><code>OsdReplayService.cs</code>: OSD-Replay-Daten aus Logvariablen berechnen.</li>
+    </ul>
+
+    <h3>Datenhaltungsschicht</h3>
+    <p><code>FlightLogDatabase.cs</code> ist fuer MySQL zustaendig. Die Klasse erstellt Tabellen, laedt Daten, speichert vorbereitete Importdaten und nutzt Transaktionen.</p>
+    <ul>
+      <li>Keine direkte Datei- oder MAVLink-Verarbeitung.</li>
+      <li>Keine Parser-/Decoder-Aufrufe.</li>
+      <li>Speicherung ueber <code>SaveImportedLog</code>.</li>
+    </ul>
+
+    <div class="diagram">
+      <svg viewBox="0 0 900 250" width="100%" height="70mm" role="img" aria-label="Aktuelle technische Architektur">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6d83"></path>
+          </marker>
+        </defs>
+        <rect x="25" y="88" width="170" height="62" rx="10" fill="#123b57"></rect>
+        <text x="110" y="113" text-anchor="middle" fill="#fff" font-size="17" font-weight="700">Avalonia View</text>
+        <text x="110" y="136" text-anchor="middle" fill="#dcecf7" font-size="13">MainWindow</text>
+        <rect x="265" y="62" width="190" height="115" rx="10" fill="#1f6d83"></rect>
+        <text x="360" y="93" text-anchor="middle" fill="#fff" font-size="17" font-weight="700">ViewModel</text>
+        <text x="360" y="116" text-anchor="middle" fill="#dcecf7" font-size="13">Commands + Zustand</text>
+        <text x="360" y="141" text-anchor="middle" fill="#dcecf7" font-size="13">Import-Service</text>
+        <rect x="525" y="38" width="165" height="62" rx="10" fill="#2b7183"></rect>
+        <text x="607" y="65" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">Parser / Decoder</text>
+        <text x="607" y="86" text-anchor="middle" fill="#dcecf7" font-size="12">Verarbeitung</text>
+        <rect x="525" y="143" width="165" height="62" rx="10" fill="#39566b"></rect>
+        <text x="607" y="170" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">FlightLogDatabase</text>
+        <text x="607" y="191" text-anchor="middle" fill="#dcecf7" font-size="12">Datenhaltung</text>
+        <rect x="755" y="143" width="120" height="62" rx="10" fill="#263847"></rect>
+        <text x="815" y="171" text-anchor="middle" fill="#fff" font-size="16" font-weight="700">MySQL</text>
+        <text x="815" y="191" text-anchor="middle" fill="#dcecf7" font-size="12">Docker/lokal</text>
+        <line x1="195" y1="119" x2="260" y2="119" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow)"></line>
+        <line x1="455" y1="98" x2="520" y2="73" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow)"></line>
+        <line x1="455" y1="139" x2="520" y2="169" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow)"></line>
+        <line x1="690" y1="174" x2="750" y2="174" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow)"></line>
+      </svg>
+    </div>
+
+    <div class="footer">Umsetzung im Code</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>4. Hauptfunktionen</h2>
+      <p class="muted">Das Tool ist Viewer, Parser, Decoder und Datenbankanwendung zugleich.</p>
+    </header>
+
+    <div class="two-col">
+      <div>
+        <h3>Import</h3>
+        <ul>
+          <li>Logdateien wie <code>.oLog</code>, <code>.tlog</code>, <code>.bin</code> und <code>.mavlink</code> importieren.</li>
+          <li>MAVLink v1 mit Startbyte <code>0xFE</code> erkennen.</li>
+          <li>MAVLink v2 mit Startbyte <code>0xFD</code> erkennen.</li>
+          <li>Optionale Sidecar-Dateien <code>.debug.jsonl</code> nutzen.</li>
+        </ul>
+
+        <h3>Dekodierung</h3>
+        <ul>
+          <li>OpenHD-MAVLink-Definitionen aus Headerdateien laden.</li>
+          <li>Payloads anhand von Typ, Arraylaenge und Offset dekodieren.</li>
+          <li>Fallback fuer bekannte Standard-MAVLink-Nachrichten.</li>
+          <li>Unbekannte Nachrichten als <code>payload_hex</code> erhalten.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Anzeige</h3>
+        <ul>
+          <li>Importierte Logs anzeigen.</li>
+          <li>MAVLink-Frames tabellarisch anzeigen.</li>
+          <li>Dekodierte Felder anzeigen und teilweise bearbeiten.</li>
+          <li>Automatische Logvariablen und OSD-Replay anzeigen.</li>
+          <li>Debug-Ereignisse fuer Import und SQL anzeigen.</li>
+        </ul>
+
+        <h3>Persistenz</h3>
+        <ul>
+          <li>Logs, Messages, Felder und Definitionen in MySQL speichern.</li>
+          <li>Manuelle Variablen und Notizen speichern.</li>
+          <li>Definitionen erneut importieren und aktualisieren.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="diagram">
+      <h3>Dekodierlogik</h3>
+      <svg viewBox="0 0 860 285" width="100%" height="82mm" role="img" aria-label="Dekodierlogik">
+        <defs>
+          <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6d83"></path>
+          </marker>
+        </defs>
+        <rect x="25" y="112" width="150" height="55" rx="10" fill="#123b57"></rect>
+        <text x="100" y="145" fill="#fff" text-anchor="middle" font-size="15" font-weight="700">MAVLink-Frame</text>
+        <polygon points="290,80 405,140 290,200 175,140" fill="#1f6d83"></polygon>
+        <text x="290" y="133" fill="#fff" text-anchor="middle" font-size="14" font-weight="700">Definition</text>
+        <text x="290" y="153" fill="#fff" text-anchor="middle" font-size="14" font-weight="700">vorhanden?</text>
+        <rect x="510" y="45" width="180" height="55" rx="10" fill="#2b7183"></rect>
+        <text x="600" y="77" fill="#fff" text-anchor="middle" font-size="14" font-weight="700">Dynamisch dekodieren</text>
+        <polygon points="600,145 710,198 600,251 490,198" fill="#6b7280"></polygon>
+        <text x="600" y="192" fill="#fff" text-anchor="middle" font-size="13" font-weight="700">Fallback</text>
+        <text x="600" y="211" fill="#fff" text-anchor="middle" font-size="13" font-weight="700">bekannt?</text>
+        <rect x="730" y="170" width="110" height="55" rx="10" fill="#39566b"></rect>
+        <text x="785" y="193" fill="#fff" text-anchor="middle" font-size="13" font-weight="700">payload_hex</text>
+        <text x="785" y="211" fill="#dcecf7" text-anchor="middle" font-size="11">speichern</text>
+        <rect x="510" y="228" width="180" height="45" rx="10" fill="#2b7183"></rect>
+        <text x="600" y="256" fill="#fff" text-anchor="middle" font-size="13" font-weight="700">Standardfelder</text>
+        <line x1="175" y1="140" x2="190" y2="140" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow2)"></line>
+        <line x1="405" y1="125" x2="505" y2="77" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow2)"></line>
+        <line x1="405" y1="160" x2="500" y2="190" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow2)"></line>
+        <line x1="710" y1="198" x2="725" y2="198" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow2)"></line>
+        <line x1="600" y1="251" x2="600" y2="230" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow2)"></line>
+      </svg>
+    </div>
+
+    <div class="footer">Hauptfunktionen</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>5. Importablauf</h2>
+      <p class="muted">Der Import zeigt das Zusammenspiel der drei Schichten.</p>
+    </header>
+
+    <ol class="step-list">
+      <li>Der Benutzer klickt in der Darstellungsschicht auf <code>Import Log</code>.</li>
+      <li>Die View oeffnet den Dateiauswahldialog und liefert den Dateipfad an das ViewModel.</li>
+      <li>Das ViewModel startet den <code>FlightLogImportService</code>.</li>
+      <li>Der Import-Service liest die Datei und ruft den <code>MavlinkParser</code> auf.</li>
+      <li>Felddefinitionen und optionale Sidecar-Zeitdaten werden geladen.</li>
+      <li><code>DynamicMavlinkDecoder</code> dekodiert die Payloads.</li>
+      <li>Vorbereitete Importdaten werden an <code>FlightLogDatabase</code> uebergeben.</li>
+      <li>Die Datenhaltungsschicht speichert Logs, Messages und Felder in einer Transaktion.</li>
+      <li>Das ViewModel aktualisiert die Collections; die DataGrids zeigen die neuen Daten.</li>
+    </ol>
+
+    <div class="diagram">
+      <svg viewBox="0 0 900 360" width="100%" height="112mm" role="img" aria-label="Importablauf">
+        <defs>
+          <marker id="arrow3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f6d83"></path>
+          </marker>
+        </defs>
+        <rect x="30" y="35" width="175" height="55" rx="9" fill="#123b57"></rect>
+        <text x="117" y="67" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">1 View: Datei auswaehlen</text>
+        <rect x="260" y="35" width="185" height="55" rx="9" fill="#1f6d83"></rect>
+        <text x="352" y="67" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">2 ViewModel startet Import</text>
+        <rect x="505" y="35" width="185" height="55" rx="9" fill="#2b7183"></rect>
+        <text x="597" y="58" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">3 Datei lesen</text>
+        <text x="597" y="76" text-anchor="middle" fill="#dcecf7" font-size="12">Frames parsen</text>
+        <rect x="505" y="145" width="185" height="55" rx="9" fill="#2b7183"></rect>
+        <text x="597" y="168" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">4 Payload dekodieren</text>
+        <text x="597" y="186" text-anchor="middle" fill="#dcecf7" font-size="12">Definitionen + Fallback</text>
+        <rect x="260" y="145" width="185" height="55" rx="9" fill="#39566b"></rect>
+        <text x="352" y="168" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">5 Daten speichern</text>
+        <text x="352" y="186" text-anchor="middle" fill="#dcecf7" font-size="12">FlightLogDatabase</text>
+        <rect x="30" y="145" width="175" height="55" rx="9" fill="#263847"></rect>
+        <text x="117" y="168" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">6 MySQL Commit</text>
+        <text x="117" y="186" text-anchor="middle" fill="#dcecf7" font-size="12">Transaktion</text>
+        <rect x="260" y="255" width="185" height="55" rx="9" fill="#1f6d83"></rect>
+        <text x="352" y="278" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">7 Anzeige aktualisieren</text>
+        <text x="352" y="296" text-anchor="middle" fill="#dcecf7" font-size="12">ObservableCollections</text>
+        <line x1="205" y1="62" x2="255" y2="62" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow3)"></line>
+        <line x1="445" y1="62" x2="500" y2="62" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow3)"></line>
+        <line x1="597" y1="90" x2="597" y2="140" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow3)"></line>
+        <line x1="505" y1="172" x2="450" y2="172" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow3)"></line>
+        <line x1="260" y1="172" x2="210" y2="172" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow3)"></line>
+        <path d="M117 200 C117 252, 205 282, 255 282" fill="none" stroke="#1f6d83" stroke-width="3" marker-end="url(#arrow3)"></path>
+      </svg>
+    </div>
+
+    <div class="note">Der Import wird in MySQL als Transaktion gespeichert. Dadurch wird ein Log vollstaendig oder gar nicht gespeichert. Das verhindert halb importierte Daten.</div>
+    <div class="footer">Importablauf</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>6. Datenbankmodell</h2>
+      <p class="muted">Die Datenbank speichert Logs, Messages, Felder, Definitionen und Notizen.</p>
+    </header>
+
+    <table>
+      <tr><th>Tabelle</th><th>Zweck</th></tr>
+      <tr><td><code>log_files</code></td><td>Ein Datensatz pro importierter Logdatei.</td></tr>
+      <tr><td><code>message_types</code></td><td>Normalisierte MAVLink-Message-Typen mit Message-ID, Name und Dialekt.</td></tr>
+      <tr><td><code>mavlink_messages</code></td><td>Ein Datensatz pro erkanntem MAVLink-Frame.</td></tr>
+      <tr><td><code>message_fields</code></td><td>Dekodierte Felder einer Message.</td></tr>
+      <tr><td><code>user_variables</code></td><td>Manuelle Variablen und Notizen.</td></tr>
+      <tr><td><code>message_definitions</code></td><td>MAVLink-Message-Definitionen aus OpenHD-Headern.</td></tr>
+      <tr><td><code>field_definitions</code></td><td>Feldlayout einer Message-Definition.</td></tr>
+    </table>
+
+    <div class="image-frame">
+      <img src="diagrams/rendered/database-er-diagram.svg" alt="Datenbank ER Diagramm">
+    </div>
+
+    <p class="small muted">Das Diagramm zeigt die Beziehungen zwischen den wichtigsten Tabellen. Die aktuelle Implementierung verwendet MySQL; das Diagramm beschreibt die fachlichen Tabellen und Beziehungen.</p>
+    <div class="footer">Datenbankmodell</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>7. Datenbankentscheidungen</h2>
+      <p class="muted">Konsistenz, Nachvollziehbarkeit und Performance stehen im Vordergrund.</p>
+    </header>
+
+    <h3>MySQL als relationale Datenbank</h3>
+    <p>Die Daten sind stark strukturiert: Ein Log enthaelt viele Messages, eine Message enthaelt viele Felder, und Definitionen enthalten viele Felddefinitionen. Diese Beziehungen passen gut zu einer relationalen Datenbank mit Primary Keys, Foreign Keys und Joins.</p>
+
+    <h3>Foreign Keys und Cascade Delete</h3>
+    <p>Foreign Keys sichern Beziehungen zwischen Tabellen ab. Wenn ein Log geloescht wird, entfernt MySQL die zugehoerigen Messages und Felder automatisch ueber <code>ON DELETE CASCADE</code>. Dadurch bleiben keine verwaisten Detaildaten zurueck.</p>
+
+    <h3>Transaktionen</h3>
+    <p>Beim Import werden viele Datensaetze geschrieben. Eine Transaktion sorgt dafuer, dass ein Import als Einheit behandelt wird. Entweder wird alles gespeichert oder nichts dauerhaft uebernommen.</p>
+
+    <h3>Indizes</h3>
+    <p>Indizes beschleunigen typische UI-Abfragen, zum Beispiel alle Messages zu einem Log oder alle Felder zu einer Message.</p>
+
+    <table>
+      <tr><th>Index-Ziel</th><th>Nutzen</th></tr>
+      <tr><td><code>mavlink_messages.log_file_id</code></td><td>Messages eines Logs schnell laden.</td></tr>
+      <tr><td><code>message_fields.message_id</code></td><td>Felder einer Message schnell laden.</td></tr>
+      <tr><td><code>message_fields.field_name</code></td><td>Felder nach Namen filtern oder sortieren.</td></tr>
+      <tr><td><code>field_definitions.definition_id</code></td><td>Felddefinitionen einer Message-Definition laden.</td></tr>
+    </table>
+
+    <h3>Rohdaten bleiben erhalten</h3>
+    <p>Das Feld <code>raw_packet_hex</code> speichert das originale MAVLink-Paket als Hex-String. Das hilft beim Debugging und macht die Dekodierung nachvollziehbar.</p>
+
+    <div class="footer">Datenbankentscheidungen</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>8. Technologieentscheidungen</h2>
+      <p class="muted">Warum Avalonia, Docker und MySQL fuer dieses Projekt sinnvoll sind.</p>
+    </header>
+
+    <h3>Avalonia statt WinForms</h3>
+    <p>WinForms ist stark Windows-orientiert. Avalonia funktioniert plattformuebergreifend und unterstuetzt moderne XAML-aehnliche Oberflaechen, MVVM und Data Binding.</p>
+    <ul>
+      <li>Cross-platform: Windows, Linux und macOS.</li>
+      <li>Gute Trennung zwischen View und ViewModel.</li>
+      <li>Geeignet fuer Tabs, DataGrids und Statusanzeigen.</li>
+      <li>Besser passend zu einer geschichteten Desktop-Anwendung.</li>
+    </ul>
+
+    <h3>Dockerized MySQL statt XAMPP</h3>
+    <p>XAMPP ist vor allem fuer PHP-/Webprojekte gedacht und bringt Apache, PHP und weitere Komponenten mit. Dieses Projekt braucht nur MySQL. Docker ist deshalb gezielter und reproduzierbarer.</p>
+    <ul>
+      <li>Definierte MySQL-Version ueber <code>mysql:8.4</code>.</li>
+      <li>Definierter Containername <code>openhd-flightlog-mysql</code>.</li>
+      <li>Keine manuelle XAMPP-Konfiguration.</li>
+      <li>Weniger Konflikte mit anderen lokalen Diensten.</li>
+      <li>Einfacher fuer Demos auf anderen Rechnern.</li>
+    </ul>
+
+    <h3>Warum keine HTTP-Web-App?</h3>
+    <p>Das Tool arbeitet mit lokalen Logdateien. Eine Desktop-App passt dazu besser als ein Browser-Frontend mit REST-API. Ein HTTP-Backend wuerde Routing, Hosting und zusaetzliche Infrastruktur erfordern, ohne fuer diesen lokalen Analysefall notwendig zu sein.</p>
+
+    <div class="note">Die 3-Schichten-Architektur beschreibt Verantwortlichkeiten. Sie verlangt nicht automatisch einen Webserver.</div>
+    <div class="footer">Technologieentscheidungen</div>
+  </section>
+
+  <section class="page">
+    <header class="section-header">
+      <h2>9. Fazit</h2>
+      <p class="muted">Das Projekt erfuellt die geforderte Schichtenlogik.</p>
+    </header>
+
+    <p>OpenHD FlightLog Studio setzt die 3-Schichten-Architektur innerhalb einer Desktop-Anwendung um. Die Darstellungsschicht ist die Avalonia-Oberflaeche, die Datenverarbeitungsschicht besteht aus ViewModel, Import-Service, Parsern und Decodern, und die Datenhaltungsschicht besteht aus <code>FlightLogDatabase</code> und MySQL.</p>
+
+    <table>
+      <tr><th>Schicht</th><th>Umsetzung</th></tr>
+      <tr><td>Darstellungsschicht</td><td>Avalonia Views: <code>MainWindow.axaml</code>, <code>MainWindow.axaml.cs</code></td></tr>
+      <tr><td>Datenverarbeitungsschicht</td><td>ViewModel, <code>FlightLogImportService</code>, Parser, Decoder, OSD-Service</td></tr>
+      <tr><td>Datenhaltungsschicht</td><td><code>FlightLogDatabase</code> und MySQL</td></tr>
+    </table>
+
+    <h3>Wichtigste Staerken</h3>
+    <ul>
+      <li>Klare Trennung zwischen UI, Verarbeitung und Speicherung.</li>
+      <li>Persistente Speicherung in MySQL.</li>
+      <li>Import in Transaktionen.</li>
+      <li>Foreign Keys und Cascade Delete.</li>
+      <li>Flexible MAVLink-Dekodierung durch gespeicherte Definitionen.</li>
+      <li>Docker-basierte Datenbankbereitstellung.</li>
+    </ul>
+
+    <h3>Moegliche Pruefungsantwort</h3>
+    <div class="note">Ja, das Projekt folgt der 3-Schichten-Architektur. Die Darstellungsschicht ist Avalonia, die Datenverarbeitungsschicht besteht aus ViewModel, Import-Service, Parsern und Decodern, und die Datenhaltungsschicht besteht aus <code>FlightLogDatabase</code> und der MySQL-Datenbank. Die Schichten laufen innerhalb einer Desktop-Anwendung, sind aber nach Verantwortlichkeiten getrennt.</div>
+
+    <div class="footer">Fazit</div>
+  </section>
+</body>
+</html>

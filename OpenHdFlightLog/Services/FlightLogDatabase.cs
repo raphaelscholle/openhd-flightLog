@@ -168,40 +168,23 @@ public sealed class FlightLogDatabase
         Log("SQL", $"schema ready: {DatabasePath}");
     }
 
-    public async Task<ImportResult> ImportLogAsync(string path)
+    public ImportResult SaveImportedLog(string path, IReadOnlyList<ImportedMavlinkMessage> messages)
     {
-        Log("IMPORT", $"read file {path}");
-        var bytes = await File.ReadAllBytesAsync(path);
-        var frames = MavlinkParser.Parse(bytes);
-
-        // Definitionen werden vorab als Dictionary geladen, damit der Import nicht fuer
-        // jedes einzelne Paket erneut message_definitions/field_definitions abfragen muss.
-        var definitions = GetFieldDefinitionsByMessageId();
-        var packetTimings = OLogDebugSidecar.LoadPacketTimings(path);
-        if (packetTimings.Count > 0)
-        {
-            Log("IMPORT", $"loaded OSD replay sidecar timings: {packetTimings.Count} packets");
-        }
-
         using var connection = OpenConnection();
         using var transaction = connection.BeginTransaction();
 
-        // Der komplette Import laeuft in einer Transaktion. Entweder werden Log-Datei,
-        // Nachrichten und Felder zusammen geschrieben, oder bei einem Fehler gar nichts.
+        // Die Datenhaltungsschicht bekommt bereits vorbereitete Nachrichten. Sie parst
+        // und dekodiert nicht selbst, sondern speichert den Import atomar in MySQL.
         var importStarted = DateTimeOffset.Now;
-        var logId = InsertLogFile(connection, transaction, path, frames.Count, importStarted);
+        var logId = InsertLogFile(connection, transaction, path, messages.Count, importStarted);
         var writtenFields = 0;
-        foreach (var frame in frames)
+        foreach (var message in messages)
         {
-            var messageTypeId = EnsureMessageType(connection, transaction, frame.MessageId);
-            packetTimings.TryGetValue(frame.PacketIndex, out var timing);
-            var messageId = InsertMessage(connection, transaction, logId, messageTypeId, frame, importStarted, timing);
-            definitions.TryGetValue(frame.MessageId, out var fieldDefinitions);
+            var frame = message.Frame;
+            var messageTypeId = EnsureMessageType(connection, transaction, frame.MessageId, message.MessageName, message.Dialect);
+            var messageId = InsertMessage(connection, transaction, logId, messageTypeId, message, importStarted);
 
-            // DynamicMavlinkDecoder nutzt gespeicherte Header-Definitionen. Falls keine
-            // Definition gefunden wird, liefert er ueber den Fallback-Decoder mindestens
-            // bekannte Standardfelder oder payload_hex.
-            foreach (var field in DynamicMavlinkDecoder.Decode(frame, fieldDefinitions ?? []))
+            foreach (var field in message.Fields)
             {
                 InsertField(connection, transaction, messageId, field);
                 writtenFields++;
@@ -209,8 +192,8 @@ public sealed class FlightLogDatabase
         }
 
         transaction.Commit();
-        Log("SQL WRITE", $"transaction committed: {frames.Count} messages, {writtenFields} fields");
-        return new ImportResult(logId, frames.Count, DatabasePath);
+        Log("SQL WRITE", $"transaction committed: {messages.Count} messages, {writtenFields} fields");
+        return new ImportResult(logId, messages.Count, DatabasePath);
     }
 
     public int ImportDefinitions(IReadOnlyList<LoadedMavlinkDefinition> definitions)
@@ -231,7 +214,7 @@ public sealed class FlightLogDatabase
                 InsertFieldDefinition(connection, transaction, definitionId, field);
             }
 
-            EnsureMessageType(connection, transaction, definition.Message.MessageId);
+            EnsureMessageType(connection, transaction, definition.Message.MessageId, definition.Message.Name, definition.Message.Dialect);
         }
 
         transaction.Commit();
@@ -312,6 +295,115 @@ public sealed class FlightLogDatabase
         return records;
     }
 
+    public IReadOnlyList<UdpReplayPacket> GetUdpReplayPackets(long logId)
+    {
+        Log("SQL READ", $"raw MAVLink packets for UDP replay WHERE log_file_id={logId}");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT packet_index, packet_time_ms, raw_packet_hex
+            FROM mavlink_messages
+            WHERE log_file_id = @logId
+            ORDER BY packet_index;
+            """;
+        command.Parameters.AddWithValue("@logId", logId);
+        using var reader = command.ExecuteReader();
+        var records = new List<UdpReplayPacket>();
+        while (reader.Read())
+        {
+            records.Add(new UdpReplayPacket
+            {
+                PacketIndex = reader.GetInt32(0),
+                TimeMs = reader.GetInt64(1),
+                RawPacket = Convert.FromHexString(reader.GetString(2))
+            });
+        }
+
+        return records;
+    }
+
+    public (long MinTimeMs, long MaxTimeMs, int PacketCount) GetUdpReplayRange(long logId)
+    {
+        Log("SQL READ", $"UDP replay time range WHERE log_file_id={logId}");
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT MIN(packet_time_ms), MAX(packet_time_ms), COUNT(*)
+            FROM mavlink_messages
+            WHERE log_file_id = @logId;
+            """;
+        command.Parameters.AddWithValue("@logId", logId);
+        using var reader = command.ExecuteReader();
+        if (!reader.Read() || reader.IsDBNull(0) || reader.IsDBNull(1))
+        {
+            return (0, 0, 0);
+        }
+
+        return (reader.GetInt64(0), reader.GetInt64(1), Convert.ToInt32(reader.GetInt64(2)));
+    }
+
+    public int RedecodeLogFields(long logId)
+    {
+        Log("SQL READ", $"re-decode raw MAVLink packets WHERE log_file_id={logId}");
+        var definitions = GetFieldDefinitionsByMessageId();
+        var messages = new List<(long Id, int MessageId, string RawPacketHex)>();
+
+        using (var readConnection = OpenConnection())
+        using (var readCommand = readConnection.CreateCommand())
+        {
+            readCommand.CommandText = """
+                SELECT m.id, t.message_id, m.raw_packet_hex
+                FROM mavlink_messages m
+                JOIN message_types t ON t.id = m.message_type_id
+                WHERE m.log_file_id = @logId
+                ORDER BY m.packet_index;
+                """;
+            readCommand.Parameters.AddWithValue("@logId", logId);
+            using var reader = readCommand.ExecuteReader();
+            while (reader.Read())
+            {
+                messages.Add((reader.GetInt64(0), reader.GetInt32(1), reader.GetString(2)));
+            }
+        }
+
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using (var delete = connection.CreateCommand())
+        {
+            delete.Transaction = transaction;
+            delete.CommandText = """
+                DELETE f
+                FROM message_fields f
+                JOIN mavlink_messages m ON m.id = f.message_id
+                WHERE m.log_file_id = @logId;
+                """;
+            delete.Parameters.AddWithValue("@logId", logId);
+            delete.ExecuteNonQuery();
+        }
+
+        var writtenFields = 0;
+        foreach (var message in messages)
+        {
+            var raw = Convert.FromHexString(message.RawPacketHex);
+            var frame = MavlinkParser.Parse(raw).FirstOrDefault();
+            if (frame is null)
+            {
+                continue;
+            }
+
+            definitions.TryGetValue(message.MessageId, out var fields);
+            foreach (var field in DynamicMavlinkDecoder.Decode(frame, fields ?? []))
+            {
+                InsertField(connection, transaction, message.Id, field);
+                writtenFields++;
+            }
+        }
+
+        transaction.Commit();
+        Log("SQL WRITE", $"re-decoded log {logId}: {writtenFields} fields");
+        return writtenFields;
+    }
+
     public IReadOnlyList<LogVariableRecord> GetLogVariables(long logId)
     {
         Log("SQL JOIN", $"message_fields JOIN mavlink_messages JOIN message_types WHERE log_file_id={logId}");
@@ -354,46 +446,6 @@ public sealed class FlightLogDatabase
         }
 
         return records;
-    }
-
-    public IReadOnlyList<OsdReplayRecord> GetOsdReplayFrames(long logId)
-    {
-        Log("SQL JOIN", $"OSD replay aggregation WHERE log_file_id={logId}");
-        var variables = GetLogVariables(logId);
-        var frames = new List<OsdReplayRecord>();
-
-        // Die OSD-Ansicht ist keine eigene Tabelle. Sie wird aus den dekodierten Feldern
-        // gruppiert nach Zeitpunkt berechnet und pickt bekannte OpenHD-Feldnamen heraus.
-        foreach (var group in variables.GroupBy(v => new { v.TimeMs, v.Timestamp }).OrderBy(g => g.Key.TimeMs))
-        {
-            var values = group.ToDictionary(
-                v => $"{v.Route}.{v.MessageName}.{v.FieldName}",
-                v => v.ValueText,
-                StringComparer.OrdinalIgnoreCase);
-
-            var frame = new OsdReplayRecord
-            {
-                TimeMs = group.Key.TimeMs,
-                Timestamp = group.Key.Timestamp,
-                LinkQuality = Lookup(values, "OpenHD Ground.OPENHD_STATS_MONITOR_MODE_WIFI_CARD.rx_signal_quality_adapter"),
-                Rssi = Lookup(values, "OpenHD Ground.OPENHD_STATS_MONITOR_MODE_WIFI_CARD.rx_rssi"),
-                Snr = Lookup(values, "OpenHD Ground.OPENHD_STATS_MONITOR_MODE_WIFI_CARD.rx_snr_antenna1"),
-                AirVideoBitrate = FormatBitrate(Lookup(values, "OpenHD Air.OPENHD_STATS_WB_VIDEO_AIR.curr_measured_encoder_bitrate")),
-                InjectedBitrate = FormatBitrate(Lookup(values, "OpenHD Air.OPENHD_STATS_WB_VIDEO_AIR.curr_injected_bitrate")),
-                TxPps = Lookup(values, "OpenHD Ground.OPENHD_STATS_TELEMETRY.curr_tx_pps"),
-                RxPps = Lookup(values, "OpenHD Ground.OPENHD_STATS_TELEMETRY.curr_rx_pps"),
-                PacketLoss = Lookup(values, "OpenHD Ground.OPENHD_STATS_TELEMETRY.curr_rx_packet_loss_perc"),
-                DroppedFrames = Lookup(values, "OpenHD Air.OPENHD_STATS_WB_VIDEO_AIR.curr_dropped_frames"),
-                CardTemperature = Lookup(values, "OpenHD Ground.OPENHD_STATS_MONITOR_MODE_WIFI_CARD.card_temperature")
-            };
-
-            if (HasOsdValue(frame))
-            {
-                frames.Add(frame);
-            }
-        }
-
-        return frames;
     }
 
     public IReadOnlyList<MessageFieldRecord> GetFields(long messageId)
@@ -679,7 +731,7 @@ public sealed class FlightLogDatabase
         Log("SQL WRITE", $"DELETE log_files id={logId} CASCADE messages/fields");
     }
 
-    private Dictionary<int, IReadOnlyList<MavlinkFieldDefinitionRecord>> GetFieldDefinitionsByMessageId()
+    public Dictionary<int, IReadOnlyList<MavlinkFieldDefinitionRecord>> GetFieldDefinitionsByMessageId()
     {
         // Import-Optimierung: Die Feldlayouts werden einmal geladen und nach MAVLink-
         // Message-ID gruppiert. Danach kann jedes Paket direkt per Dictionary-Lookup
@@ -778,12 +830,11 @@ public sealed class FlightLogDatabase
         return command.LastInsertedId;
     }
 
-    private static long EnsureMessageType(MySqlConnection connection, MySqlTransaction transaction, int messageId)
+    private static long EnsureMessageType(MySqlConnection connection, MySqlTransaction transaction, int messageId, string name, string dialect)
     {
         // message_types normalisiert Message-ID, Name und Dialekt. Importierte
         // mavlink_messages referenzieren diese Tabelle, damit Name/Dialekt nicht in
         // jeder Nachricht wiederholt werden muessen.
-        var definition = GetDefinition(connection, transaction, messageId);
         using var insert = connection.CreateCommand();
         insert.Transaction = transaction;
         insert.CommandText = """
@@ -795,45 +846,18 @@ public sealed class FlightLogDatabase
                 dialect = VALUES(dialect);
             """;
         insert.Parameters.AddWithValue("@messageId", messageId);
-        insert.Parameters.AddWithValue("@name", definition?.Name ?? MavlinkMessageDecoder.GetMessageName(messageId));
-        insert.Parameters.AddWithValue("@dialect", definition?.Dialect ?? "");
+        insert.Parameters.AddWithValue("@name", name);
+        insert.Parameters.AddWithValue("@dialect", dialect);
         insert.ExecuteNonQuery();
         return insert.LastInsertedId;
     }
 
-    private static MavlinkMessageDefinitionRecord? GetDefinition(MySqlConnection connection, MySqlTransaction transaction, int messageId)
-    {
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT id, message_id, name, dialect, payload_length, crc_extra, source_file, notes
-            FROM message_definitions
-            WHERE message_id = @messageId;
-            """;
-        command.Parameters.AddWithValue("@messageId", messageId);
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
-        {
-            return null;
-        }
-
-        return new MavlinkMessageDefinitionRecord
-        {
-            Id = reader.GetInt64(0),
-            MessageId = reader.GetInt32(1),
-            Name = reader.GetString(2),
-            Dialect = reader.GetString(3),
-            PayloadLength = reader.GetInt32(4),
-            CrcExtra = reader.GetInt32(5),
-            SourceFile = reader.GetString(6),
-            Notes = reader.GetString(7)
-        };
-    }
-
-    private static long InsertMessage(MySqlConnection connection, MySqlTransaction transaction, long logId, long messageTypeId, MavlinkFrame frame, DateTimeOffset importStarted, PacketTiming? timing)
+    private static long InsertMessage(MySqlConnection connection, MySqlTransaction transaction, long logId, long messageTypeId, ImportedMavlinkMessage message, DateTimeOffset importStarted)
     {
         // Wenn eine Sidecar-Zeitinformation vorhanden ist, wird sie bevorzugt. Sonst
         // nutzt die Anwendung den Paketindex als robuste, monotone Ersatzzeit.
+        var frame = message.Frame;
+        var timing = message.Timing;
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -856,26 +880,12 @@ public sealed class FlightLogDatabase
         command.Parameters.AddWithValue("@sequence", frame.Sequence);
         command.Parameters.AddWithValue("@systemId", frame.SystemId);
         command.Parameters.AddWithValue("@componentId", frame.ComponentId);
-        command.Parameters.AddWithValue("@route", RouteFor(frame.SystemId));
+        command.Parameters.AddWithValue("@route", message.Route);
         command.Parameters.AddWithValue("@payloadLength", frame.Payload.Length);
         command.Parameters.AddWithValue("@checksum", $"0x{frame.Checksum:X4}");
         command.Parameters.AddWithValue("@rawPacketHex", Convert.ToHexString(frame.RawPacket));
         command.ExecuteNonQuery();
         return command.LastInsertedId;
-    }
-
-    private static string RouteFor(int systemId)
-    {
-        // OpenHD nutzt typische System-IDs fuer Ground/Air/QOpenHD. Die Route macht die
-        // spaetere Variablenansicht besser lesbar.
-        return systemId switch
-        {
-            100 => "OpenHD Ground",
-            101 => "OpenHD Air",
-            255 => "QOpenHD",
-            1 or 0 => "Flight Controller",
-            _ => $"System {systemId}"
-        };
     }
 
     private static void InsertField(MySqlConnection connection, MySqlTransaction transaction, long messageId, DecodedField field)
@@ -963,32 +973,7 @@ public sealed class FlightLogDatabase
         });
     }
 
-    private static string Lookup(IReadOnlyDictionary<string, string> values, string key)
-    {
-        return values.TryGetValue(key, out var value) ? value : "-";
-    }
-
-    private static string FormatBitrate(string value)
-    {
-        return double.TryParse(value, out var bitrate) ? $"{bitrate / 1_000_000:0.00} Mbps" : value;
-    }
-
-    private static bool HasOsdValue(OsdReplayRecord frame)
-    {
-        return frame.LinkQuality != "-"
-            || frame.Rssi != "-"
-            || frame.Snr != "-"
-            || frame.AirVideoBitrate != "-"
-            || frame.InjectedBitrate != "-"
-            || frame.TxPps != "-"
-            || frame.RxPps != "-"
-            || frame.PacketLoss != "-"
-            || frame.DroppedFrames != "-"
-            || frame.CardTemperature != "-";
-    }
 }
-
-public sealed record ImportResult(long LogId, int MessageCount, string DatabasePath);
 
 internal static class MySqlServerManager
 {

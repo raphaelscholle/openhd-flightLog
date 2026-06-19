@@ -92,9 +92,10 @@
                 <Grid RowDefinitions="260,*" ColumnDefinitions="410,*" RowSpacing="12" ColumnSpacing="12">
                     <Border Classes="panel">
                         <DockPanel>
-                            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="12,10">
+                            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="12,10" ColumnSpacing="8">
                                 <TextBlock Classes="sectionTitle" Text="Imported Logs"/>
-                                <Button Grid.Column="1" Content="Delete" Command="{Binding DeleteLogCommand}"/>
+                                <Button Grid.Column="1" Content="Re-decode" Command="{Binding RedecodeSelectedLogCommand}"/>
+                                <Button Grid.Column="2" Content="Delete" Command="{Binding DeleteLogCommand}"/>
                             </Grid>
                             <DataGrid ItemsSource="{Binding Logs}"
                                       SelectedItem="{Binding SelectedLog}"
@@ -209,6 +210,179 @@
                             </DataGrid>
                         </DockPanel>
                     </Border>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="OSD / UDP Replay">
+                <Grid RowDefinitions="Auto,*" RowSpacing="12">
+                    <Border Classes="panel">
+                        <Grid ColumnDefinitions="Auto,170,Auto,90,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*"
+                              ColumnSpacing="10"
+                              Margin="12">
+                            <TextBlock Text="UDP Target"
+                                       VerticalAlignment="Center"
+                                       Foreground="#C8D5E2"/>
+                            <TextBox Grid.Column="1"
+                                     Text="{Binding UdpReplayHost}"
+                                     PlaceholderText="127.0.0.1"/>
+                            <TextBlock Grid.Column="2"
+                                       Text="Port"
+                                       VerticalAlignment="Center"
+                                       Foreground="#C8D5E2"/>
+                            <TextBox Grid.Column="3"
+                                     Text="{Binding UdpReplayPort}"/>
+                            <Button Grid.Column="4"
+                                    Content="Play"
+                                    Command="{Binding StartUdpReplayCommand}"/>
+                            <Button Grid.Column="5"
+                                    Content="Pause"
+                                    Command="{Binding StopUdpReplayCommand}"/>
+                            <TextBlock Grid.Column="6"
+                                       Text="{Binding UdpReplaySpeed}"
+                                       VerticalAlignment="Center"
+                                       Foreground="#C8D5E2"/>
+                            <Button Grid.Column="7"
+                                    Content="0.5x"
+                                    Command="{Binding SetUdpReplaySpeedHalfCommand}"/>
+                            <Button Grid.Column="8"
+                                    Content="1x"
+                                    Command="{Binding SetUdpReplaySpeedNormalCommand}"/>
+                            <Button Grid.Column="9"
+                                    Content="2x"
+                                    Command="{Binding SetUdpReplaySpeedDoubleCommand}"/>
+                            <Button Grid.Column="10"
+                                    Content="4x"
+                                    Command="{Binding SetUdpReplaySpeedQuadCommand}"/>
+                            <TextBlock Grid.Column="11"
+                                       Text="{Binding UdpReplaySentPackets, StringFormat='Sent packets: {0:N0}'}"
+                                       VerticalAlignment="Center"
+                                       Foreground="#9FB0C2"/>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="1.2*,*" ColumnSpacing="12">
+                        <Border Classes="panel">
+                            <Grid RowDefinitions="Auto,*,Auto" Margin="18">
+                                <TextBlock Classes="sectionTitle" Text="Rendered OSD Frame"/>
+                                <Border Grid.Row="1"
+                                        Margin="0,14"
+                                        Background="#05080D"
+                                        BorderBrush="#2C4054"
+                                        BorderThickness="1"
+                                        CornerRadius="8">
+                                    <Grid RowDefinitions="Auto,*,Auto" Margin="20">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel>
+                                                <TextBlock Text="OPENHD"
+                                                           FontSize="22"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#F3F7FB"/>
+                                                <TextBlock Text="{Binding CurrentOsdFrame.Timestamp}"
+                                                           Foreground="#9FB0C2"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                                <TextBlock Text="{Binding CurrentOsdFrame.LinkQuality, StringFormat='LQ {0}%'}"
+                                                           FontSize="24"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#67E8A5"
+                                                           HorizontalAlignment="Right"/>
+                                                <TextBlock Text="{Binding CurrentOsdFrame.PacketLoss, StringFormat='Loss {0}%'}"
+                                                           Foreground="#F9C74F"
+                                                           HorizontalAlignment="Right"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Grid Grid.Row="1"
+                                              ColumnDefinitions="*,*"
+                                              RowDefinitions="*,*"
+                                              Margin="0,24"
+                                              ColumnSpacing="18"
+                                              RowSpacing="18">
+                                            <StackPanel>
+                                                <TextBlock Text="RSSI" Foreground="#9FB0C2"/>
+                                                <TextBlock Text="{Binding CurrentOsdFrame.Rssi}"
+                                                           FontSize="30"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#F3F7FB"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                                                <TextBlock Text="SNR" Foreground="#9FB0C2" HorizontalAlignment="Right"/>
+                                                <TextBlock Text="{Binding CurrentOsdFrame.Snr}"
+                                                           FontSize="30"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#F3F7FB"
+                                                           HorizontalAlignment="Right"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1">
+                                                <TextBlock Text="Video bitrate" Foreground="#9FB0C2"/>
+                                                <TextBlock Text="{Binding CurrentOsdFrame.AirVideoBitrate}"
+                                                           FontSize="24"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#8BD3FF"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right">
+                                                <TextBlock Text="Card temp" Foreground="#9FB0C2" HorizontalAlignment="Right"/>
+                                                <TextBlock Text="{Binding CurrentOsdFrame.CardTemperature}"
+                                                           FontSize="24"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="#FFB86B"
+                                                           HorizontalAlignment="Right"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <Grid Grid.Row="2" ColumnDefinitions="*,Auto,*">
+                                            <TextBlock Text="{Binding CurrentOsdFrame.TxPps, StringFormat='TX {0} pps'}"
+                                                       Foreground="#C8D5E2"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding CurrentOsdFrame.InjectedBitrate}"
+                                                       Foreground="#C8D5E2"/>
+                                            <TextBlock Grid.Column="2"
+                                                       Text="{Binding CurrentOsdFrame.RxPps, StringFormat='RX {0} pps'}"
+                                                       Foreground="#C8D5E2"
+                                                       HorizontalAlignment="Right"/>
+                                        </Grid>
+                                    </Grid>
+                                </Border>
+
+                                <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="10">
+                                    <Button Content="-5s" Command="{Binding SeekBackFiveSecondsCommand}"/>
+                                    <Button Grid.Column="1" Content="Previous" Command="{Binding PreviousOsdFrameCommand}"/>
+                                    <Slider Grid.Column="2"
+                                            Minimum="0"
+                                            Maximum="{Binding OsdReplayMaxMs}"
+                                            Value="{Binding OsdReplayTimeMs}"/>
+                                    <Button Grid.Column="3" Content="Next" Command="{Binding NextOsdFrameCommand}"/>
+                                    <Button Grid.Column="4" Content="+5s" Command="{Binding SeekForwardFiveSecondsCommand}"/>
+                                    <TextBlock Grid.Column="5"
+                                               Text="{Binding OsdReplayTimeMs}"
+                                               VerticalAlignment="Center"
+                                               Foreground="#9FB0C2"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Column="1" Classes="panel">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Top"
+                                           Classes="sectionTitle"
+                                           Text="OSD Replay Frames"
+                                           Margin="12,10"/>
+                                <DataGrid ItemsSource="{Binding OsdReplayFrames}"
+                                          AutoGenerateColumns="False"
+                                          IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Time ms" Binding="{Binding TimeMs}" Width="90"/>
+                                        <DataGridTextColumn Header="LQ" Binding="{Binding LinkQuality}" Width="70"/>
+                                        <DataGridTextColumn Header="RSSI" Binding="{Binding Rssi}" Width="70"/>
+                                        <DataGridTextColumn Header="SNR" Binding="{Binding Snr}" Width="70"/>
+                                        <DataGridTextColumn Header="Video" Binding="{Binding AirVideoBitrate}" Width="120"/>
+                                        <DataGridTextColumn Header="Loss" Binding="{Binding PacketLoss}" Width="80"/>
+                                        <DataGridTextColumn Header="Temp" Binding="{Binding CardTemperature}" Width="80"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </DockPanel>
+                        </Border>
+                    </Grid>
                 </Grid>
             </TabItem>
 

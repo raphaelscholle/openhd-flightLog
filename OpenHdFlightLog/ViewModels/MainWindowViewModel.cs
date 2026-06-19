@@ -13,6 +13,10 @@ public partial class MainWindowViewModel : ViewModelBase
     // Avalonia-Controls direkt, sondern arbeitet mit ObservableCollections und Commands.
     private FlightLogDatabase? database;
     private bool isInitialized;
+    private CancellationTokenSource? udpReplayCancellation;
+    private readonly object udpReplaySeekLock = new();
+    private long? requestedUdpReplaySeekTimeMs;
+    private bool isUpdatingTimelineFromUdpReplay;
 
     // Diese Collections sind direkt an DataGrids in MainWindow.axaml gebunden. Wenn hier
     // Elemente hinzugefuegt oder entfernt werden, aktualisiert Avalonia die UI automatisch.
@@ -30,6 +34,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteLogCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartUdpReplayCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RedecodeSelectedLogCommand))]
     private LogFileRecord? selectedLog;
 
     [ObservableProperty]
@@ -69,6 +75,25 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private OsdReplayRecord currentOsdFrame = new();
+
+    [ObservableProperty]
+    private string udpReplayHost = Environment.GetEnvironmentVariable("OPENHD_GLIDE_UDP_HOST") ?? "127.0.0.1";
+
+    [ObservableProperty]
+    private int udpReplayPort = int.TryParse(Environment.GetEnvironmentVariable("OPENHD_GLIDE_UDP_PORT"), out var glideUdpPort)
+        ? glideUdpPort
+        : 14550;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartUdpReplayCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StopUdpReplayCommand))]
+    private bool isUdpReplayRunning;
+
+    [ObservableProperty]
+    private int udpReplaySentPackets;
+
+    [ObservableProperty]
+    private double udpReplaySpeed = 1.0;
 
     private FlightLogDatabase Database => database ?? throw new InvalidOperationException("Datenbank ist noch nicht initialisiert.");
 
@@ -138,26 +163,32 @@ public partial class MainWindowViewModel : ViewModelBase
             LogVariables.Add(variable);
         }
 
-        foreach (var frame in Database.GetOsdReplayFrames(value.Id))
+        foreach (var frame in OsdReplayService.BuildFrames(LogVariables))
         {
             OsdReplayFrames.Add(frame);
         }
 
-        // Der OSD-Replay-Slider braucht Min/Max-Werte. Die Frames sind bereits aus den
-        // dekodierten Logvariablen aggregiert.
-        if (OsdReplayFrames.Count > 0)
+        // Die Player-Timeline orientiert sich an allen gespeicherten MAVLink-Paketen,
+        // nicht nur an aggregierten OSD-Werten. Sonst waeren Logs mit wenigen OSD-
+        // Feldern kaum sinnvoll seekbar.
+        var replayRange = Database.GetUdpReplayRange(value.Id);
+        if (replayRange.PacketCount > 0)
         {
-            OsdReplayMaxMs = OsdReplayFrames.Max(frame => frame.TimeMs);
-            OsdReplayTimeMs = OsdReplayFrames.Min(frame => frame.TimeMs);
+            OsdReplayMaxMs = replayRange.MaxTimeMs;
+            OsdReplayTimeMs = replayRange.MinTimeMs;
             UpdateCurrentOsdFrame();
         }
 
-        Status = $"{Messages.Count:N0} Nachrichten und {LogVariables.Count:N0} Variablen geladen.";
+        Status = $"{replayRange.PacketCount:N0} Replay-Pakete, {Messages.Count:N0} Nachrichten in der Tabelle und {LogVariables.Count:N0} Variablen geladen.";
     }
 
     partial void OnOsdReplayTimeMsChanged(long value)
     {
         UpdateCurrentOsdFrame();
+        if (IsUdpReplayRunning && !isUpdatingTimelineFromUdpReplay)
+        {
+            RequestUdpReplaySeek(value);
+        }
     }
 
     partial void OnSelectedMessageChanged(MavlinkMessageRecord? value)
@@ -222,7 +253,8 @@ public partial class MainWindowViewModel : ViewModelBase
             // Vor dem Import werden Definitionen geladen, wenn die Datenbank noch keine
             // enthaelt. Dadurch koennen OpenHD-spezifische Felder sofort dekodiert werden.
             EnsureDefinitionsLoadedForImport();
-            var result = await Database.ImportLogAsync(path);
+            var importer = new FlightLogImportService(Database, AddDebugEvent);
+            var result = await importer.ImportLogAsync(path);
             RefreshLogs();
             SelectedLog = Logs.FirstOrDefault(log => log.Id == result.LogId);
             Status = $"{Path.GetFileName(path)} importiert: {result.MessageCount:N0} MAVLink-Nachrichten.";
@@ -256,7 +288,18 @@ public partial class MainWindowViewModel : ViewModelBase
             var definitions = MavlinkDefinitionLoader.LoadFromOpenHdHeaders();
             var count = Database.ImportDefinitions(definitions);
             RefreshDefinitions();
-            Status = $"{count:N0} MAVLink-Definitionen aus OpenHD geladen.";
+            var redecoded = 0;
+            if (SelectedLog is not null)
+            {
+                var selectedId = SelectedLog.Id;
+                redecoded = Database.RedecodeLogFields(selectedId);
+                SelectedLog = null;
+                SelectedLog = Logs.FirstOrDefault(log => log.Id == selectedId);
+            }
+
+            Status = redecoded > 0
+                ? $"{count:N0} MAVLink-Definitionen geladen und {redecoded:N0} Felder im aktuellen Log neu dekodiert."
+                : $"{count:N0} MAVLink-Definitionen aus OpenHD geladen.";
         }
         catch (Exception ex)
         {
@@ -288,6 +331,32 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     private bool CanDeleteLog() => SelectedLog is not null;
+
+    private bool CanRedecodeSelectedLog() => SelectedLog is not null;
+
+    [RelayCommand(CanExecute = nameof(CanRedecodeSelectedLog))]
+    private void RedecodeSelectedLog()
+    {
+        if (SelectedLog is null)
+        {
+            Status = "Kein Log zum Neu-Dekodieren ausgewaehlt.";
+            return;
+        }
+
+        try
+        {
+            EnsureDefinitionsLoadedForImport();
+            var selectedId = SelectedLog.Id;
+            var fields = Database.RedecodeLogFields(selectedId);
+            SelectedLog = null;
+            SelectedLog = Logs.FirstOrDefault(log => log.Id == selectedId);
+            Status = $"{fields:N0} Felder mit aktuellen MAVLink-Definitionen neu dekodiert.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Neu-Dekodieren fehlgeschlagen: {ex.Message}";
+        }
+    }
 
     [RelayCommand(CanExecute = nameof(CanSaveField))]
     private void SaveField()
@@ -457,6 +526,160 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var next = OsdReplayFrames.FirstOrDefault(frame => frame.TimeMs > OsdReplayTimeMs) ?? OsdReplayFrames.Last();
         OsdReplayTimeMs = next.TimeMs;
+    }
+
+    [RelayCommand]
+    private void SeekBackFiveSeconds()
+    {
+        OsdReplayTimeMs = Math.Max(0, OsdReplayTimeMs - 5000);
+    }
+
+    [RelayCommand]
+    private void SeekForwardFiveSeconds()
+    {
+        OsdReplayTimeMs = Math.Min(OsdReplayMaxMs, OsdReplayTimeMs + 5000);
+    }
+
+    [RelayCommand]
+    private void SetUdpReplaySpeedHalf()
+    {
+        UdpReplaySpeed = 0.5;
+    }
+
+    [RelayCommand]
+    private void SetUdpReplaySpeedNormal()
+    {
+        UdpReplaySpeed = 1.0;
+    }
+
+    [RelayCommand]
+    private void SetUdpReplaySpeedDouble()
+    {
+        UdpReplaySpeed = 2.0;
+    }
+
+    [RelayCommand]
+    private void SetUdpReplaySpeedQuad()
+    {
+        UdpReplaySpeed = 4.0;
+    }
+
+    private bool CanStartUdpReplay() => SelectedLog is not null && !IsUdpReplayRunning;
+
+    [RelayCommand(CanExecute = nameof(CanStartUdpReplay))]
+    private async Task StartUdpReplayAsync()
+    {
+        if (SelectedLog is null)
+        {
+            Status = "Kein Log fuer UDP-Replay ausgewaehlt.";
+            return;
+        }
+
+        if (database is null)
+        {
+            Status = "Datenbank ist noch nicht bereit.";
+            return;
+        }
+
+        var port = Math.Clamp(UdpReplayPort, 1, 65535);
+        UdpReplayPort = port;
+        UdpReplaySentPackets = 0;
+        ClearRequestedUdpReplaySeek();
+        IsUdpReplayRunning = true;
+        udpReplayCancellation = new CancellationTokenSource();
+        var token = udpReplayCancellation.Token;
+        var log = SelectedLog;
+        var startTimeMs = OsdReplayTimeMs;
+
+        try
+        {
+            Status = $"UDP-Replay wird vorbereitet ab {startTimeMs:N0} ms: {log.FileName}";
+            var packets = await Task.Run(() => Database.GetUdpReplayPackets(log.Id), token);
+            if (packets.Count == 0)
+            {
+                Status = "UDP-Replay: keine MAVLink-Pakete im ausgewaehlten Log.";
+                return;
+            }
+
+            var progress = new Progress<UdpReplayProgress>(replay =>
+            {
+                UdpReplaySentPackets = replay.SentPackets;
+                SetTimelineFromUdpReplay(replay.TimeMs);
+                Status = $"UDP-Replay {UdpReplaySpeed:0.##}x an {UdpReplayHost}:{UdpReplayPort}: {replay.SentPackets:N0}/{replay.TotalPackets:N0} Pakete bei {replay.TimeMs:N0} ms";
+            });
+
+            var sent = await MavlinkUdpReplayService.ReplayAsync(
+                packets,
+                UdpReplayHost,
+                port,
+                startTimeMs,
+                () => UdpReplaySpeed,
+                TakeRequestedUdpReplaySeek,
+                token,
+                progress);
+            Status = $"UDP-Replay abgeschlossen: {sent:N0} Pakete ab {startTimeMs:N0} ms an {UdpReplayHost}:{port}.";
+        }
+        catch (OperationCanceledException)
+        {
+            Status = $"UDP-Replay gestoppt nach {UdpReplaySentPackets:N0} Paketen.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"UDP-Replay fehlgeschlagen: {ex.Message}";
+        }
+        finally
+        {
+            udpReplayCancellation?.Dispose();
+            udpReplayCancellation = null;
+            IsUdpReplayRunning = false;
+        }
+    }
+
+    private bool CanStopUdpReplay() => IsUdpReplayRunning;
+
+    [RelayCommand(CanExecute = nameof(CanStopUdpReplay))]
+    private void StopUdpReplay()
+    {
+        udpReplayCancellation?.Cancel();
+    }
+
+    private void SetTimelineFromUdpReplay(long timeMs)
+    {
+        isUpdatingTimelineFromUdpReplay = true;
+        try
+        {
+            OsdReplayTimeMs = timeMs;
+        }
+        finally
+        {
+            isUpdatingTimelineFromUdpReplay = false;
+        }
+    }
+
+    private void RequestUdpReplaySeek(long timeMs)
+    {
+        lock (udpReplaySeekLock)
+        {
+            requestedUdpReplaySeekTimeMs = timeMs;
+        }
+    }
+
+    private long? TakeRequestedUdpReplaySeek()
+    {
+        lock (udpReplaySeekLock)
+        {
+            var requested = requestedUdpReplaySeekTimeMs;
+            requestedUdpReplaySeekTimeMs = null;
+            return requested;
+        }
+    }
+
+    private void ClearRequestedUdpReplaySeek()
+    {
+        lock (udpReplaySeekLock)
+        {
+            requestedUdpReplaySeekTimeMs = null;
+        }
     }
 
     [RelayCommand]
