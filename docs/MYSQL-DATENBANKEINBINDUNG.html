@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>MySQL-Datenbankeinbindung</title>
+<style>
+@page { size: A4; margin: 18mm 16mm; }
+* { box-sizing: border-box; }
+body { font-family: "Segoe UI", Arial, sans-serif; color: #1f2933; line-height: 1.48; font-size: 11.2pt; }
+h1 { font-size: 24pt; margin: 0 0 16pt; color: #111827; border-bottom: 2px solid #2563eb; padding-bottom: 8pt; }
+h2 { font-size: 17pt; margin: 22pt 0 8pt; color: #111827; break-after: avoid; }
+h3 { font-size: 13.5pt; margin: 16pt 0 6pt; color: #1f2937; break-after: avoid; }
+p { margin: 0 0 8pt; }
+ul, ol { margin: 0 0 9pt 18pt; padding: 0; }
+li { margin: 2pt 0; }
+code { font-family: Consolas, "Courier New", monospace; background: #eef2f7; padding: 1pt 3pt; border-radius: 3px; font-size: 9.7pt; }
+pre { background: #0f172a; color: #e5e7eb; padding: 10pt; border-radius: 6px; overflow-wrap: anywhere; white-space: pre-wrap; break-inside: avoid; margin: 8pt 0 12pt; }
+pre code { background: transparent; color: inherit; padding: 0; font-size: 8.7pt; }
+table { width: 100%; border-collapse: collapse; margin: 8pt 0 12pt; break-inside: avoid; }
+th, td { border: 1px solid #cbd5e1; padding: 5pt 6pt; vertical-align: top; }
+th { background: #e8f0fe; text-align: left; }
+hr { border: 0; border-top: 1px solid #cbd5e1; margin: 14pt 0; }
+</style>
+</head>
+<body>
+<h1>MySQL-Datenbankeinbindung mit Triggern und Stored Procedures</h1>
+<h2>Ziel der Datenbankeinbindung</h2>
+<p>OpenHD FlightLog Studio speichert importierte MAVLink-Logdateien in einer lokalen MySQL-Datenbank. Die Anwendung soll dabei nicht die komplette Datenlogik im C#-Code verstecken. Stattdessen liegen zentrale Schreibregeln direkt in MySQL:</p>
+<ul>
+<li>Tabellen speichern Logs, MAVLink-Nachrichten, Felder, Definitionen und</li>
+<p>manuelle Variablen.</p>
+<li>Stored Procedures kapseln Insert-, Update- und Upsert-Vorgaenge.</li>
+<li>Trigger setzen automatisch abgeleitete Werte und halten Zaehler aktuell.</li>
+<li>Foreign Keys loeschen Detaildaten automatisch, wenn ein Log geloescht wird.</li>
+</ul>
+<p>Der C#-Code bleibt dadurch hauptsaechlich fuer UI, Dateiimport, MAVLink-Parsing und das Aufrufen der Datenbankroutinen verantwortlich.</p>
+<h2>Verbindung zwischen Tool und MySQL</h2>
+<p>Die Verbindung wird in <code>FlightLogDatabase</code> aufgebaut. Die App nutzt <code>MySqlConnector</code> und liest die Zugangsdaten aus Umgebungsvariablen. Wenn keine Variablen gesetzt sind, nutzt sie lokale Standardwerte.</p>
+<pre><code>private static MySqlConnectionStringBuilder CreateConnectionStringBuilder()
+{
+    return new MySqlConnectionStringBuilder
+    {
+        Server = Environment.GetEnvironmentVariable("OPENHD_MYSQL_HOST") ?? "127.0.0.1",
+        Port = uint.TryParse(Environment.GetEnvironmentVariable("OPENHD_MYSQL_PORT"), out var port) ? port : 13306,
+        UserID = Environment.GetEnvironmentVariable("OPENHD_MYSQL_USER") ?? "root",
+        Password = Environment.GetEnvironmentVariable("OPENHD_MYSQL_PASSWORD") ?? "openhd",
+        Database = Environment.GetEnvironmentVariable("OPENHD_MYSQL_DATABASE") ?? "openhd_flightlog",
+        CharacterSet = "utf8mb4",
+        SslMode = MySqlSslMode.None
+    };
+}</code></pre>
+<p>Beim Start der Datenbankschicht passiert:</p>
+<ol>
+<li>Verbindungskonfiguration wird erstellt.</li>
+<li>MySQL wird geprueft oder per Docker gestartet.</li>
+<li>Die Datenbank wird angelegt, falls sie fehlt.</li>
+<li>Tabellen, Indizes, Trigger und Stored Procedures werden angelegt.</li>
+</ol>
+<pre><code>public FlightLogDatabase(Action&lt;DebugEventRecord&gt;? debug = null)
+{
+    this.debug = debug;
+    connectionStringBuilder = CreateConnectionStringBuilder();
+    DatabasePath = $"{connectionStringBuilder.Server}:{connectionStringBuilder.Port}/{connectionStringBuilder.Database}";
+    MySqlServerManager.EnsureServerStarted(connectionStringBuilder, Log);
+    EnsureDatabase();
+    EnsureSchema();
+}</code></pre>
+<h2>Schema-Erzeugung</h2>
+<p>Die Methode <code>EnsureSchema()</code> ist idempotent. Sie darf also bei jedem Start laufen. Existierende Tabellen bleiben erhalten, fehlende Tabellen werden angelegt.</p>
+<p>Beispiel fuer die Wurzeltabelle eines Imports:</p>
+<pre><code>CREATE TABLE IF NOT EXISTS log_files (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    file_name VARCHAR(512) NOT NULL,
+    path TEXT NOT NULL,
+    imported_at VARCHAR(64) NOT NULL,
+    import_started_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    message_count INT NOT NULL
+) ENGINE=InnoDB;</code></pre>
+<p>Die Tabelle <code>mavlink_messages</code> speichert jedes erkannte MAVLink-Paket:</p>
+<pre><code>CREATE TABLE IF NOT EXISTS mavlink_messages (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    log_file_id BIGINT NOT NULL,
+    message_type_id BIGINT NOT NULL,
+    packet_index INT NOT NULL,
+    packet_time_ms BIGINT NOT NULL DEFAULT 0,
+    packet_timestamp VARCHAR(64) NOT NULL DEFAULT '',
+    byte_offset INT NOT NULL,
+    mavlink_version INT NOT NULL,
+    sequence INT NOT NULL,
+    system_id INT NOT NULL,
+    component_id INT NOT NULL,
+    route VARCHAR(255) NOT NULL DEFAULT '',
+    payload_length INT NOT NULL,
+    checksum VARCHAR(32) NOT NULL,
+    raw_packet_hex LONGTEXT NOT NULL,
+    FOREIGN KEY (log_file_id) REFERENCES log_files(id) ON DELETE CASCADE,
+    FOREIGN KEY (message_type_id) REFERENCES message_types(id)
+) ENGINE=InnoDB;</code></pre>
+<p>Wichtig ist <code>ON DELETE CASCADE</code>: Wenn ein Log geloescht wird, loescht MySQL die zugehoerigen Messages automatisch. Ueber die naechste Beziehung werden auch die Felder geloescht.</p>
+<h2>Datenfluss beim Import</h2>
+<p>Der Import startet im <code>FlightLogImportService</code>.</p>
+<pre><code>public async Task&lt;ImportResult&gt; ImportLogAsync(string path)
+{
+    var bytes = await File.ReadAllBytesAsync(path);
+    var frames = MavlinkParser.Parse(bytes);
+    var fieldDefinitions = database.GetFieldDefinitionsByMessageId();
+    var messageDefinitions = database.GetDefinitions().ToDictionary(definition =&gt; definition.MessageId);
+    var packetTimings = OLogDebugSidecar.LoadPacketTimings(path);
+
+    var importedMessages = new List&lt;ImportedMavlinkMessage&gt;();
+    foreach (var frame in frames)
+    {
+        fieldDefinitions.TryGetValue(frame.MessageId, out var fields);
+        messageDefinitions.TryGetValue(frame.MessageId, out var messageDefinition);
+        packetTimings.TryGetValue(frame.PacketIndex, out var timing);
+
+        importedMessages.Add(new ImportedMavlinkMessage(
+            frame,
+            timing,
+            messageDefinition?.Name ?? MavlinkMessageDecoder.GetMessageName(frame.MessageId),
+            messageDefinition?.Dialect ?? "",
+            DynamicMavlinkDecoder.Decode(frame, fields ?? [])));
+    }
+
+    return database.SaveImportedLog(path, importedMessages);
+}</code></pre>
+<p>Der Service parst also die Datei und dekodiert die MAVLink-Felder. Die eigentliche Speicherung laeuft danach ueber MySQL-Prozeduren.</p>
+<h2>Importtransaktion in C#</h2>
+<p>Alle Daten eines Imports werden in einer Transaktion geschrieben. Wenn ein Fehler auftritt, wird der Import nicht halb gespeichert.</p>
+<pre><code>public ImportResult SaveImportedLog(string path, IReadOnlyList&lt;ImportedMavlinkMessage&gt; messages)
+{
+    using var connection = OpenConnection();
+    using var transaction = connection.BeginTransaction();
+
+    var importStarted = DateTimeOffset.Now;
+    var logId = InsertLogFile(connection, transaction, path, importStarted);
+
+    foreach (var message in messages)
+    {
+        var frame = message.Frame;
+        var messageTypeId = EnsureMessageType(
+            connection,
+            transaction,
+            frame.MessageId,
+            message.MessageName,
+            message.Dialect);
+
+        var messageId = InsertMessage(connection, transaction, logId, messageTypeId, message);
+
+        foreach (var field in message.Fields)
+        {
+            InsertField(connection, transaction, messageId, field);
+        }
+    }
+
+    transaction.Commit();
+    return new ImportResult(logId, messages.Count, DatabasePath);
+}</code></pre>
+<p>Man sieht hier: C# ruft nur noch Hilfsmethoden auf. Diese Hilfsmethoden fuehren keine grossen <code>INSERT</code>-Bloecke mehr aus, sondern rufen Stored Procedures.</p>
+<h2>Stored Procedures</h2>
+<p>Stored Procedures sind gespeicherte SQL-Programme in MySQL. Sie enthalten die zentrale Schreiblogik und koennen von der Anwendung mit <code>CALL</code> ausgefuehrt werden.</p>
+<h3><code>sp_create_log_file</code></h3>
+<p>Diese Prozedur legt einen neuen Log-Eintrag an. Der Dateiname wird nicht im C#- Code gesetzt, sondern spaeter durch einen Trigger aus dem Pfad berechnet.</p>
+<pre><code>CREATE PROCEDURE sp_create_log_file(
+    IN p_path TEXT,
+    IN p_imported_at VARCHAR(64)
+)
+BEGIN
+    INSERT INTO log_files (file_name, path, imported_at, message_count)
+    VALUES ('', p_path, p_imported_at, 0);
+
+    SELECT LAST_INSERT_ID() AS id;
+END</code></pre>
+<p>C# ruft die Prozedur so auf:</p>
+<pre><code>command.CommandText = "CALL sp_create_log_file(@path, @importedAt);";
+command.Parameters.AddWithValue("@path", path);
+command.Parameters.AddWithValue("@importedAt", importedAt.ToString("yyyy-MM-dd HH:mm:ss zzz"));
+var logId = Convert.ToInt64(command.ExecuteScalar());</code></pre>
+<h3><code>sp_ensure_message_type</code></h3>
+<p>Diese Prozedur stellt sicher, dass eine MAVLink-Message-ID in <code>message_types</code> existiert. Wenn sie schon existiert, wird sie aktualisiert. Das ist ein Upsert.</p>
+<pre><code>CREATE PROCEDURE sp_ensure_message_type(
+    IN p_message_id INT,
+    IN p_name VARCHAR(255),
+    IN p_dialect VARCHAR(255)
+)
+BEGIN
+    INSERT INTO message_types (message_id, name, dialect)
+    VALUES (p_message_id, TRIM(p_name), TRIM(COALESCE(p_dialect, '')))
+    ON DUPLICATE KEY UPDATE
+        id = LAST_INSERT_ID(id),
+        name = VALUES(name),
+        dialect = VALUES(dialect);
+
+    SELECT LAST_INSERT_ID() AS id;
+END</code></pre>
+<p>Der Vorteil: Die Anwendung muss nicht vorher pruefen, ob der Typ schon vorhanden ist. MySQL entscheidet das ueber den Unique Key auf <code>message_id</code>.</p>
+<h3><code>sp_insert_mavlink_message</code></h3>
+<p>Diese Prozedur speichert ein MAVLink-Paket. Route und Fallback-Zeitwerte werden nicht von C# gesetzt, sondern durch Trigger ergaenzt.</p>
+<pre><code>CREATE PROCEDURE sp_insert_mavlink_message(
+    IN p_log_file_id BIGINT,
+    IN p_message_type_id BIGINT,
+    IN p_packet_index INT,
+    IN p_packet_time_ms BIGINT,
+    IN p_packet_timestamp VARCHAR(64),
+    IN p_byte_offset INT,
+    IN p_mavlink_version INT,
+    IN p_sequence INT,
+    IN p_system_id INT,
+    IN p_component_id INT,
+    IN p_payload_length INT,
+    IN p_checksum VARCHAR(32),
+    IN p_raw_packet_hex LONGTEXT
+)
+BEGIN
+    INSERT INTO mavlink_messages
+        (log_file_id, message_type_id, packet_index, packet_time_ms, packet_timestamp,
+         byte_offset, mavlink_version, sequence, system_id, component_id,
+         route, payload_length, checksum, raw_packet_hex)
+    VALUES
+        (p_log_file_id, p_message_type_id, p_packet_index, COALESCE(p_packet_time_ms, 0), COALESCE(p_packet_timestamp, ''),
+         p_byte_offset, p_mavlink_version, p_sequence, p_system_id, p_component_id,
+         '', p_payload_length, p_checksum, p_raw_packet_hex);
+
+    SELECT LAST_INSERT_ID() AS id;
+END</code></pre>
+<h3><code>sp_insert_message_field</code></h3>
+<p>Diese Prozedur speichert ein dekodiertes Feld einer Message.</p>
+<pre><code>CREATE PROCEDURE sp_insert_message_field(
+    IN p_message_id BIGINT,
+    IN p_field_name VARCHAR(255),
+    IN p_value_text TEXT,
+    IN p_numeric_value DOUBLE,
+    IN p_unit VARCHAR(64)
+)
+BEGIN
+    INSERT INTO message_fields (message_id, field_name, value_text, numeric_value, unit)
+    VALUES (p_message_id, p_field_name, p_value_text, p_numeric_value, COALESCE(p_unit, ''));
+END</code></pre>
+<p>Wenn <code>numeric_value</code> leer ist, aber <code>value_text</code> eine Zahl enthaelt, setzt ein Trigger den Zahlenwert automatisch.</p>
+<h3>Weitere Prozeduren</h3>
+<p>Neben dem Import gibt es Prozeduren fuer Definitionen und manuelle Variablen:</p>
+<pre><code>CALL sp_upsert_message_definition(...);
+CALL sp_delete_definition_fields(...);
+CALL sp_insert_field_definition(...);
+CALL sp_update_message_definition(...);
+CALL sp_update_field_definition(...);
+CALL sp_update_message_field(...);
+CALL sp_save_user_variable(...);</code></pre>
+<p>Beispiel fuer manuelle Variablen:</p>
+<pre><code>CREATE PROCEDURE sp_save_user_variable(
+    IN p_id BIGINT,
+    IN p_name VARCHAR(255),
+    IN p_value_text TEXT,
+    IN p_data_type VARCHAR(64),
+    IN p_notes TEXT
+)
+BEGIN
+    IF p_id = 0 THEN
+        INSERT INTO user_variables (name, value_text, data_type, notes)
+        VALUES (TRIM(p_name), TRIM(p_value_text), COALESCE(NULLIF(TRIM(p_data_type), ''), 'text'), TRIM(COALESCE(p_notes, '')));
+
+        SELECT LAST_INSERT_ID() AS id;
+    ELSE
+        UPDATE user_variables
+        SET name = TRIM(p_name),
+            value_text = TRIM(p_value_text),
+            data_type = COALESCE(NULLIF(TRIM(p_data_type), ''), 'text'),
+            notes = TRIM(COALESCE(p_notes, ''))
+        WHERE id = p_id;
+
+        SELECT p_id AS id;
+    END IF;
+END</code></pre>
+<h2>Trigger</h2>
+<p>Trigger sind automatische Aktionen, die MySQL bei bestimmten Tabellenereignissen ausfuehrt. Sie laufen ohne extra Aufruf aus C#.</p>
+<h3><code>trg_log_files_before_insert</code></h3>
+<p>Dieser Trigger laeuft vor jedem Insert in <code>log_files</code>.</p>
+<p>Aufgaben:</p>
+<ul>
+<li>Dateiname aus dem Pfad ableiten.</li>
+<li>Importzeit setzen, falls sie leer ist.</li>
+<li>Negative oder leere Message-Counts verhindern.</li>
+</ul>
+<pre><code>CREATE TRIGGER trg_log_files_before_insert
+BEFORE INSERT ON log_files
+FOR EACH ROW
+BEGIN
+    IF NEW.file_name IS NULL OR TRIM(NEW.file_name) = '' THEN
+        SET NEW.file_name = SUBSTRING_INDEX(REPLACE(NEW.path, '\\', '/'), '/', -1);
+    END IF;
+
+    IF NEW.imported_at IS NULL OR TRIM(NEW.imported_at) = '' THEN
+        SET NEW.imported_at = DATE_FORMAT(NOW(3), '%Y-%m-%d %H:%i:%s');
+    END IF;
+
+    IF NEW.message_count IS NULL OR NEW.message_count &lt; 0 THEN
+        SET NEW.message_count = 0;
+    END IF;
+END</code></pre>
+<p>Beispiel:</p>
+<pre><code>CALL sp_create_log_file('C:\\Logs\\sample_openhd.oLog', '2026-06-19 10:30:00 +02:00');
+
+SELECT file_name, path
+FROM log_files
+ORDER BY id DESC
+LIMIT 1;</code></pre>
+<p>Erwartetes Ergebnis:</p>
+<pre><code>file_name           path
+sample_openhd.oLog  C:\Logs\sample_openhd.oLog</code></pre>
+<h3><code>trg_mavlink_messages_before_insert</code></h3>
+<p>Dieser Trigger laeuft vor jedem Insert in <code>mavlink_messages</code>.</p>
+<p>Aufgaben:</p>
+<ul>
+<li>Route automatisch aus <code>system_id</code> ableiten.</li>
+<li><code>packet_time_ms</code> als Fallback auf <code>packet_index</code> setzen.</li>
+<li><code>packet_timestamp</code> als Fallback aus Importzeit plus Paketindex setzen.</li>
+</ul>
+<pre><code>CREATE TRIGGER trg_mavlink_messages_before_insert
+BEFORE INSERT ON mavlink_messages
+FOR EACH ROW
+BEGIN
+    IF NEW.route IS NULL OR TRIM(NEW.route) = '' THEN
+        SET NEW.route = CASE NEW.system_id
+            WHEN 100 THEN 'OpenHD Ground'
+            WHEN 101 THEN 'OpenHD Air'
+            WHEN 255 THEN 'QOpenHD'
+            WHEN 1 THEN 'Flight Controller'
+            WHEN 0 THEN 'Flight Controller'
+            ELSE CONCAT('System ', NEW.system_id)
+        END;
+    END IF;
+
+    IF NEW.packet_time_ms IS NULL OR NEW.packet_time_ms = 0 THEN
+        SET NEW.packet_time_ms = NEW.packet_index;
+    END IF;
+
+    IF NEW.packet_timestamp IS NULL OR TRIM(NEW.packet_timestamp) = '' THEN
+        SET NEW.packet_timestamp = (
+            SELECT DATE_FORMAT(DATE_ADD(import_started_at, INTERVAL (NEW.packet_index * 1000) MICROSECOND), '%Y-%m-%d %H:%i:%s.%f')
+            FROM log_files
+            WHERE id = NEW.log_file_id
+        );
+    END IF;
+END</code></pre>
+<p>Beispiel fuer die Route:</p>
+<pre><code>-- system_id 100 wird automatisch zu "OpenHD Ground"
+CALL sp_insert_mavlink_message(
+    1, 1, 42, NULL, NULL,
+    128, 2, 7, 100, 1,
+    12, '0x1234', 'FD0C000000640100000000000000000000000000'
+);
+
+SELECT packet_index, system_id, route, packet_time_ms
+FROM mavlink_messages
+WHERE packet_index = 42;</code></pre>
+<p>Erwartetes Ergebnis:</p>
+<pre><code>packet_index  system_id  route          packet_time_ms
+42            100        OpenHD Ground  42</code></pre>
+<h3><code>trg_mavlink_messages_after_insert</code></h3>
+<p>Dieser Trigger laeuft nach jedem Insert in <code>mavlink_messages</code>.</p>
+<p>Aufgabe:</p>
+<ul>
+<li><code>log_files.message_count</code> automatisch neu berechnen.</li>
+</ul>
+<pre><code>CREATE TRIGGER trg_mavlink_messages_after_insert
+AFTER INSERT ON mavlink_messages
+FOR EACH ROW
+BEGIN
+    UPDATE log_files
+    SET message_count = (
+        SELECT COUNT(*)
+        FROM mavlink_messages
+        WHERE log_file_id = NEW.log_file_id
+    )
+    WHERE id = NEW.log_file_id;
+END</code></pre>
+<p>Dadurch muss C# die Anzahl der Messages nicht selbst mitzaehlen.</p>
+<h3><code>trg_mavlink_messages_after_delete</code></h3>
+<p>Dieser Trigger laeuft nach dem Loeschen einer Message.</p>
+<pre><code>CREATE TRIGGER trg_mavlink_messages_after_delete
+AFTER DELETE ON mavlink_messages
+FOR EACH ROW
+BEGIN
+    UPDATE log_files
+    SET message_count = (
+        SELECT COUNT(*)
+        FROM mavlink_messages
+        WHERE log_file_id = OLD.log_file_id
+    )
+    WHERE id = OLD.log_file_id;
+END</code></pre>
+<p>Wenn Messages entfernt werden, bleibt der Zaehler in <code>log_files</code> korrekt.</p>
+<h3><code>trg_mavlink_messages_after_update</code></h3>
+<p>Dieser Trigger wird relevant, wenn eine Message theoretisch einem anderen Log zugeordnet wird.</p>
+<pre><code>CREATE TRIGGER trg_mavlink_messages_after_update
+AFTER UPDATE ON mavlink_messages
+FOR EACH ROW
+BEGIN
+    IF OLD.log_file_id &lt;&gt; NEW.log_file_id THEN
+        UPDATE log_files
+        SET message_count = (
+            SELECT COUNT(*)
+            FROM mavlink_messages
+            WHERE log_file_id = OLD.log_file_id
+        )
+        WHERE id = OLD.log_file_id;
+
+        UPDATE log_files
+        SET message_count = (
+            SELECT COUNT(*)
+            FROM mavlink_messages
+            WHERE log_file_id = NEW.log_file_id
+        )
+        WHERE id = NEW.log_file_id;
+    END IF;
+END</code></pre>
+<h3><code>trg_message_fields_before_insert</code></h3>
+<p>Dieser Trigger laeuft vor jedem Insert in <code>message_fields</code>.</p>
+<p>Aufgaben:</p>
+<ul>
+<li>Feldname, Textwert und Einheit trimmen.</li>
+<li>Zahlen automatisch erkennen.</li>
+</ul>
+<pre><code>CREATE TRIGGER trg_message_fields_before_insert
+BEFORE INSERT ON message_fields
+FOR EACH ROW
+BEGIN
+    SET NEW.field_name = TRIM(NEW.field_name);
+    SET NEW.value_text = TRIM(NEW.value_text);
+    SET NEW.unit = TRIM(COALESCE(NEW.unit, ''));
+
+    IF NEW.numeric_value IS NULL AND NEW.value_text REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN
+        SET NEW.numeric_value = CAST(NEW.value_text AS DECIMAL(30,10));
+    END IF;
+END</code></pre>
+<p>Beispiel:</p>
+<pre><code>CALL sp_insert_message_field(1, ' voltage_battery ', ' 11.7 ', NULL, ' V ');
+
+SELECT field_name, value_text, numeric_value, unit
+FROM message_fields
+ORDER BY id DESC
+LIMIT 1;</code></pre>
+<p>Erwartetes Ergebnis:</p>
+<pre><code>field_name       value_text  numeric_value  unit
+voltage_battery  11.7        11.7           V</code></pre>
+<h3><code>trg_message_fields_before_update</code></h3>
+<p>Dieser Trigger verwendet dieselbe Logik beim Bearbeiten vorhandener Felder.</p>
+<pre><code>CREATE TRIGGER trg_message_fields_before_update
+BEFORE UPDATE ON message_fields
+FOR EACH ROW
+BEGIN
+    SET NEW.field_name = TRIM(NEW.field_name);
+    SET NEW.value_text = TRIM(NEW.value_text);
+    SET NEW.unit = TRIM(COALESCE(NEW.unit, ''));
+
+    IF NEW.numeric_value IS NULL AND NEW.value_text REGEXP '^-?[0-9]+(\\.[0-9]+)?$' THEN
+        SET NEW.numeric_value = CAST(NEW.value_text AS DECIMAL(30,10));
+    END IF;
+END</code></pre>
+<h2>Warum Trigger und Prozeduren sinnvoll sind</h2>
+<p>Ohne Trigger und Prozeduren muesste die Anwendung viele Regeln selbst ausfuehren:</p>
+<pre><code>var route = systemId switch
+{
+    100 =&gt; "OpenHD Ground",
+    101 =&gt; "OpenHD Air",
+    255 =&gt; "QOpenHD",
+    1 or 0 =&gt; "Flight Controller",
+    _ =&gt; $"System {systemId}"
+};</code></pre>
+<p>Diese Route-Logik liegt jetzt in MySQL. Das hat Vorteile:</p>
+<ul>
+<li>Die Regel gilt immer, egal ob Daten aus der App oder direkt per SQL eingefuegt</li>
+<p>werden.</p>
+<li>Der C#-Code wird kleiner und klarer.</li>
+<li>Die Datenbank schuetzt ihre eigene Datenqualitaet.</li>
+<li>Wiederholte Schreibablaeufe werden zentral gepflegt.</li>
+</ul>
+<h2>Zusammenspiel von C# und MySQL</h2>
+<p>Die Arbeit ist aufgeteilt:</p>
+<table><thead>
+<tr><th>Bereich</th><th>Verantwortung</th></tr>
+</thead><tbody>
+<tr><td>C# UI</td><td>Anzeigen, Auswaehlen, Buttons, Tabellenansichten</td></tr>
+<tr><td>C# Importservice</td><td>Datei lesen, MAVLink-Pakete parsen, Felder dekodieren</td></tr>
+<tr><td>MySQL Stored Procedures</td><td>Zentrale Insert-, Update- und Upsert-Vorgaenge</td></tr>
+<tr><td>MySQL Trigger</td><td>Automatische Ableitungen und Konsistenzregeln</td></tr>
+<tr><td>MySQL Foreign Keys</td><td>Automatisches Loeschen abhaengiger Daten</td></tr>
+</tbody></table>
+<p>Ein typischer Import sieht deshalb so aus:</p>
+<pre><code>Benutzer waehlt .oLog-Datei
+        |
+        v
+C# liest Datei und parst MAVLink-Frames
+        |
+        v
+C# ruft Stored Procedures mit CALL auf
+        |
+        v
+MySQL schreibt Tabellen
+        |
+        v
+Trigger ergaenzen Route, Zeitstempel, Dateiname, Message-Count
+        |
+        v
+UI liest die gespeicherten Daten per SELECT wieder aus</code></pre>
+<h2>Beispiel: kompletter Mini-Import in SQL</h2>
+<p>Das folgende Beispiel zeigt vereinfacht, wie die App intern mit MySQL interagiert.</p>
+<pre><code>CALL sp_create_log_file('C:\\Logs\\demo.oLog', '2026-06-19 12:00:00 +02:00');
+SET @log_id = LAST_INSERT_ID();
+
+CALL sp_ensure_message_type(30, 'ATTITUDE', 'common');
+SET @type_id = LAST_INSERT_ID();
+
+CALL sp_insert_mavlink_message(
+    @log_id,
+    @type_id,
+    1,
+    NULL,
+    NULL,
+    0,
+    2,
+    10,
+    1,
+    1,
+    28,
+    '0xABCD',
+    'FD1C00000A01011E000000000000000000000000000000000000000000000000000000'
+);
+SET @message_id = LAST_INSERT_ID();
+
+CALL sp_insert_message_field(@message_id, 'roll', '0.12', NULL, 'rad');
+CALL sp_insert_message_field(@message_id, 'pitch', '-0.04', NULL, 'rad');
+CALL sp_insert_message_field(@message_id, 'yaw', '1.57', NULL, 'rad');</code></pre>
+<p>Nach diesen Aufrufen haben Trigger automatisch:</p>
+<ul>
+<li><code>log_files.file_name</code> auf <code>demo.oLog</code> gesetzt.</li>
+<li><code>mavlink_messages.route</code> auf <code>Flight Controller</code> gesetzt.</li>
+<li><code>mavlink_messages.packet_time_ms</code> auf <code>1</code> gesetzt.</li>
+<li><code>mavlink_messages.packet_timestamp</code> aus <code>import_started_at</code> berechnet.</li>
+<li><code>log_files.message_count</code> auf <code>1</code> gesetzt.</li>
+<li><code>message_fields.numeric_value</code> aus den Textwerten berechnet.</li>
+</ul>
+<p>Kontrollabfrage:</p>
+<pre><code>SELECT
+    l.file_name,
+    l.message_count,
+    m.packet_index,
+    m.route,
+    f.field_name,
+    f.value_text,
+    f.numeric_value,
+    f.unit
+FROM log_files l
+JOIN mavlink_messages m ON m.log_file_id = l.id
+JOIN message_fields f ON f.message_id = m.id
+WHERE l.id = @log_id
+ORDER BY m.packet_index, f.field_name;</code></pre>
+<h2>Fazit</h2>
+<p>Die App nutzt MySQL nicht nur als einfache Ablage. Die Datenbank enthaelt eigene Logik:</p>
+<ul>
+<li>Stored Procedures bilden die offiziellen Schreibschnittstellen.</li>
+<li>Trigger fuehren automatische Regeln aus.</li>
+<li>Foreign Keys sichern die Beziehungen zwischen Logs, Messages und Feldern.</li>
+</ul>
+<p>Damit ist die Datenbankeinbindung transparenter und entspricht besser der Anforderung, wichtige Datenlogik nicht nur im Anwendungscode zu verstecken.</p>
+</body>
+</html>

@@ -1,0 +1,478 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>
+endobj
+3 0 obj
+<< /Length 5782 >>
+stream
+0.04 0.12 0.2 rg
+BT /F1 24 Tf 42 555 Td (OpenHD FlightLog SQL Trigger Logging) Tj ET
+0.34 0.38 0.43 rg
+BT /F1 11 Tf 44 532 Td (How triggers and stored procedures track database activity automatically) Tj ET
+0.16 0.28 0.42 RG
+0.93 0.97 1 rg
+42 445 145 54 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 52 481 Td (App starts) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 52 465 Td (FlightLogDatabase) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 52 454.5 Td (constructor opens MariaDB) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 52 444 Td (and calls EnsureDatabase\(\)) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 52 433.5 Td (and EnsureSchema\(\).) Tj ET
+0.16 0.28 0.42 RG
+0.94 0.98 0.94 rg
+230 445 155 54 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 240 481 Td (Schema setup) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 240 465 Td (EnsureSchema\(\) creates) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 240 454.5 Td (tables, indexes, migrations,) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 240 444 Td (then calls) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 240 433.5 Td (EnsureDatabaseRoutines\(\).) Tj ET
+0.16 0.28 0.42 RG
+1 0.97 0.91 rg
+430 445 165 54 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 440 481 Td (Routines recreated) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 440 465 Td (Old triggers/procedures are) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 440 454.5 Td (dropped, then) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 440 444 Td (sp_write_activity_log and all) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 440 433.5 Td (CREATE TRIGGER statements are) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 440 423 Td (executed.) Tj ET
+0.16 0.28 0.42 RG
+0.97 0.95 1 rg
+645 445 150 54 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 655 481 Td (Activity log) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 655 465 Td (Every tracked INSERT,) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 655 454.5 Td (UPDATE, and DELETE writes a) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 655 444 Td (row into) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 655 433.5 Td (database_activity_log.) Tj ET
+0.2 0.28 0.36 RG
+1.3 w
+187 472 m 230 472 l S
+230 472 m 223.94 475.50 l 223.94 468.50 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+385 472 m 430 472 l S
+430 472 m 423.94 475.50 l 423.94 468.50 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+595 472 m 645 472 l S
+645 472 m 638.94 475.50 l 638.94 468.50 l h f
+1 w
+0.04 0.12 0.2 rg
+BT /F1 13 Tf 42 398 Td (Import path: C# calls stored procedures; trigger execution is automatic.) Tj ET
+0.16 0.28 0.42 RG
+0.95 0.98 1 rg
+54 320 145 48 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 64 350 Td (SaveImportedLog\(\)) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 64 334 Td (Loops imported MAVLink) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 64 323.5 Td (messages and fields inside) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 64 313 Td (one transaction.) Tj ET
+0.16 0.28 0.42 RG
+0.97 0.98 0.94 rg
+245 345 185 44 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 255 371 Td (CALL sp_create_log_file) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 255 355 Td (Inserts into log_files.) Tj ET
+0.16 0.28 0.42 RG
+0.97 0.98 0.94 rg
+245 280 185 48 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 255 310 Td (CALL sp_insert_mavlink_message) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 255 294 Td (Inserts into mavlink_messages.) Tj ET
+0.16 0.28 0.42 RG
+0.97 0.98 0.94 rg
+245 215 185 48 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 255 245 Td (CALL sp_insert_message_field) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 255 229 Td (Inserts into message_fields.) Tj ET
+0.16 0.28 0.42 RG
+1 0.96 0.91 rg
+500 345 260 44 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 510 371 Td (log_files triggers) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 510 355 Td (Normalize the row and log INSERT/UPDATE/DELETE) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 510 344.5 Td (activity.) Tj ET
+0.16 0.28 0.42 RG
+1 0.96 0.91 rg
+500 280 260 48 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 510 310 Td (mavlink triggers) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 510 294 Td (Derive route/time, update message_count, and log) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 510 283.5 Td (message inserts/deletes/updates.) Tj ET
+0.16 0.28 0.42 RG
+1 0.96 0.91 rg
+500 215 260 48 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 510 245 Td (message_fields triggers) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 510 229 Td (Trim/parse values and log field) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 510 218.5 Td (inserts/updates/deletes.) Tj ET
+0.2 0.28 0.36 RG
+1.3 w
+199 344 m 245 367 l S
+245 367 m 238.01 367.42 l 241.14 361.16 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+199 344 m 245 304 l S
+245 304 m 242.72 310.62 l 238.13 305.34 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+199 344 m 245 239 l S
+245 239 m 245.77 245.96 l 239.36 243.15 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+430 367 m 500 367 l S
+500 367 m 493.94 370.50 l 493.94 363.50 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+430 304 m 500 304 l S
+500 304 m 493.94 307.50 l 493.94 300.50 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+430 239 m 500 239 l S
+500 239 m 493.94 242.50 l 493.94 235.50 l h f
+1 w
+0.04 0.12 0.2 rg
+BT /F1 13 Tf 42 164 Td (Edit path: field edits also pass through database rules.) Tj ET
+0.16 0.28 0.42 RG
+0.95 0.98 1 rg
+54 92 170 44 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 64 118 Td (UI edits field) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 64 102 Td (Database.SaveField\(\) is called.) Tj ET
+0.16 0.28 0.42 RG
+0.97 0.98 0.94 rg
+276 92 205 44 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 286 118 Td (CALL sp_update_message_field) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 286 102 Td (Updates message_fields row.) Tj ET
+0.16 0.28 0.42 RG
+1 0.96 0.91 rg
+540 92 220 44 re B
+0.04 0.16 0.28 rg
+BT /F1 11 Tf 550 118 Td (update trigger + activity row) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 550 102 Td (Normalizes the update and writes the) Tj ET
+0.18 0.21 0.25 rg
+BT /F1 8.5 Tf 550 91.5 Td (change into database_activity_log.) Tj ET
+0.2 0.28 0.36 RG
+1.3 w
+224 114 m 276 114 l S
+276 114 m 269.94 117.50 l 269.94 110.50 l h f
+1 w
+0.2 0.28 0.36 RG
+1.3 w
+481 114 m 540 114 l S
+540 114 m 533.94 117.50 l 533.94 110.50 l h f
+1 w
+endstream
+endobj
+4 0 obj
+<< /Type /Page /Parent 9 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 3 0 R >>
+endobj
+5 0 obj
+<< /Length 5012 >>
+stream
+0.04 0.12 0.2 rg
+BT /F1 22 Tf 42 555 Td (Implementation Snippets) Tj ET
+0.34 0.38 0.43 rg
+BT /F1 10.5 Tf 44 533 Td (Source: OpenHdFlightLog/Services/FlightLogDatabase.cs) Tj ET
+0.35 0.35 0.31 RG
+0.98 0.98 0.96 rg
+42 350 360 150 re B
+0.18 0.18 0.16 rg
+BT /F1 10.5 Tf 52 483 Td (1. Activity log table and writer procedure) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 466 Td (CREATE TABLE IF NOT EXISTS database_activity_log \() Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 456.5 Td (    id BIGINT PRIMARY KEY AUTO_INCREMENT,) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 447 Td (    changed_at DATETIME\(3\) NOT NULL DEFAULT CURRENT_TIMESTAMP\(3\),) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 437.5 Td (    table_name VARCHAR\(64\) NOT NULL,) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 428 Td (    activity_type VARCHAR\(16\) NOT NULL,) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 418.5 Td (    row_id BIGINT NULL,) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 409 Td (    summary TEXT NOT NULL) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 399.5 Td (\);) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 390 Td () Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 380.5 Td (CREATE PROCEDURE sp_write_activity_log\(...\)) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 371 Td (BEGIN) Tj ET
+0.35 0.35 0.31 RG
+0.98 0.98 0.96 rg
+432 350 365 150 re B
+0.18 0.18 0.16 rg
+BT /F1 10.5 Tf 442 483 Td (2. Routines are recreated during schema setup) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 466 Td (private void EnsureDatabaseRoutines\(MySqlConnection connection\)) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 456.5 Td ({) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 447 Td (    string[] routineDrops =) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 437.5 Td (    [) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 428 Td (        "DROP TRIGGER IF EXISTS trg_log_files_before_insert;",) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 418.5 Td (        "DROP TRIGGER IF EXISTS trg_log_files_after_insert;",) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 409 Td (        "DROP PROCEDURE IF EXISTS sp_write_activity_log;") Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 399.5 Td (    ];) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 390 Td () Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 380.5 Td (    foreach \(var sql in routineDrops\)) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 371 Td (        ExecuteNonQuery\(connection, sql, sql.TrimEnd\(';'\)\);) Tj ET
+0.35 0.35 0.31 RG
+0.98 0.98 0.96 rg
+42 175 360 145 re B
+0.18 0.18 0.16 rg
+BT /F1 10.5 Tf 52 303 Td (3. C# calls procedures, triggers fire automatically) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 286 Td (command.CommandText =) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 276.5 Td (    "CALL sp_insert_mavlink_message\(...\);";) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 267 Td () Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 257.5 Td (-- inside the procedure) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 248 Td (INSERT INTO mavlink_messages \(...\)) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 238.5 Td (VALUES \(...\);) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 229 Td () Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 219.5 Td (-- then MySQL runs the trigger) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 210 Td (CREATE TRIGGER trg_mavlink_messages_after_insert) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 200.5 Td (AFTER INSERT ON mavlink_messages) Tj ET
+0.35 0.35 0.31 RG
+0.98 0.98 0.96 rg
+432 175 365 145 re B
+0.18 0.18 0.16 rg
+BT /F1 10.5 Tf 442 303 Td (4. Edit tracking trigger example) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 286 Td (CREATE TRIGGER trg_user_variables_after_update) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 276.5 Td (AFTER UPDATE ON user_variables) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 267 Td (FOR EACH ROW) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 257.5 Td (BEGIN) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 248 Td (    CALL sp_write_activity_log\() Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 238.5 Td (        'user_variables',) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 229 Td (        'UPDATE',) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 219.5 Td (        NEW.id,) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 210 Td (        CONCAT\('Variable geaendert: ',) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 442 200.5 Td (               OLD.name, ' -> ', NEW.name\)\);) Tj ET
+0.18 0.28 0.42 RG
+0.94 0.97 1 rg
+42 48 755 92 re B
+0.04 0.12 0.2 rg
+BT /F1 15 Tf 58 118 Td (Why we need them) Tj ET
+0.14 0.17 0.2 rg
+BT /F1 9.5 Tf 58 99 Td (- Fulfills the assignment requirement for a persistent activity log table.) Tj ET
+0.14 0.17 0.2 rg
+BT /F1 9.5 Tf 58 87 Td (- Tracks inserts, updates, and deletes automatically in MariaDB, not manually in UI code.) Tj ET
+0.14 0.17 0.2 rg
+BT /F1 9.5 Tf 58 75 Td (- Uses stored procedures for write paths and a stored procedure for trigger logging.) Tj ET
+0.14 0.17 0.2 rg
+BT /F1 9.5 Tf 58 63 Td (- Shows the protocol in the DB Activity tab: table, operation, row id, time, summary.) Tj ET
+0.14 0.17 0.2 rg
+BT /F1 9.5 Tf 58 51 Td (- Keeps the older normalization triggers for route, timestamps, counts, and field cleanup.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 9 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 4209 >>
+stream
+0.04 0.12 0.2 rg
+BT /F1 22 Tf 42 555 Td (Old vs New Database Activity Tracking) Tj ET
+0.34 0.38 0.43 rg
+BT /F1 10.5 Tf 44 533 Td (What changed compared to a non-trigger or UI-only logging approach) Tj ET
+0.45 0.24 0.18 RG
+1 0.96 0.94 rg
+42 455 365 52 re B
+0.28 0.08 0.04 rg
+BT /F1 15 Tf 58 487 Td (Older / non-trigger approach) Tj ET
+0.22 0.13 0.1 rg
+BT /F1 9 Tf 58 468 Td (Application code writes data and optionally writes debug text.) Tj ET
+0.22 0.13 0.1 rg
+BT /F1 9 Tf 58 457 Td (Tracking depends on every C# write path remembering to log manually.) Tj ET
+0.16 0.38 0.22 RG
+0.93 0.98 0.95 rg
+435 455 365 52 re B
+0.04 0.23 0.1 rg
+BT /F1 15 Tf 451 487 Td (New trigger-based approach) Tj ET
+0.1 0.2 0.13 rg
+BT /F1 9 Tf 451 468 Td (Stored procedures perform writes; triggers automatically log the result.) Tj ET
+0.1 0.2 0.13 rg
+BT /F1 9 Tf 451 457 Td (Tracking lives in MariaDB and is persisted in database_activity_log.) Tj ET
+0.35 0.35 0.31 RG
+0.98 0.98 0.96 rg
+42 275 365 145 re B
+0.18 0.18 0.16 rg
+BT /F1 10.5 Tf 52 403 Td (Before: manual or missing tracking in C#) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 386 Td (public void DeleteVariable\(long variableId\)) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 376.5 Td ({) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 367 Td (    command.CommandText =) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 357.5 Td (        "DELETE FROM user_variables WHERE id = @id;";) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 348 Td (    command.ExecuteNonQuery\(\);) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 338.5 Td () Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 329 Td (    // Only UI/debug output. If another code path deletes) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 319.5 Td (    // data and forgets this line, no persistent audit row exists.) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 310 Td (    Log\("SQL WRITE", $"DELETE user_variables id={variableId}"\);) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 52 300.5 Td (}) Tj ET
+0.35 0.35 0.31 RG
+0.98 0.98 0.96 rg
+435 275 365 145 re B
+0.18 0.18 0.16 rg
+BT /F1 10.5 Tf 445 403 Td (After: database-level tracking) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 386 Td (CREATE TRIGGER trg_user_variables_after_delete) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 376.5 Td (AFTER DELETE ON user_variables) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 367 Td (FOR EACH ROW) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 357.5 Td (BEGIN) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 348 Td (    CALL sp_write_activity_log\() Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 338.5 Td (        'user_variables',) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 329 Td (        'DELETE',) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 319.5 Td (        OLD.id,) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 310 Td (        CONCAT\('Variable geloescht: ', OLD.name\)\);) Tj ET
+0.12 0.12 0.12 rg
+BT /F2 7.8 Tf 445 300.5 Td (END) Tj ET
+0.04 0.12 0.2 rg
+BT /F1 15 Tf 42 238 Td (Practical differences) Tj ET
+0.24 0.29 0.34 RG
+0.97 0.98 0.99 rg
+42 74 755 145 re B
+0.22 0.13 0.1 rg
+BT /F1 12 Tf 58 197 Td (Without trigger logging) Tj ET
+0.18 0.16 0.14 rg
+BT /F1 9 Tf 58 178 Td (- Logs are application behavior, not database behavior.) Tj ET
+0.18 0.16 0.14 rg
+BT /F1 9 Tf 58 166.5 Td (- Direct SQL changes are invisible unless the caller logs manually.) Tj ET
+0.18 0.16 0.14 rg
+BT /F1 9 Tf 58 155 Td (- A missed Log\(...\) call means the change is not traceable.) Tj ET
+0.18 0.16 0.14 rg
+BT /F1 9 Tf 58 143.5 Td (- DebugEvents disappear when the app restarts.) Tj ET
+0.18 0.16 0.14 rg
+BT /F1 9 Tf 58 132 Td (- Does not clearly satisfy the assignment requirement for a log table.) Tj ET
+0.04 0.23 0.1 rg
+BT /F1 12 Tf 438 197 Td (With trigger logging) Tj ET
+0.12 0.18 0.14 rg
+BT /F1 9 Tf 438 178 Td (- Logs are enforced by MariaDB whenever tracked rows change.) Tj ET
+0.12 0.18 0.14 rg
+BT /F1 9 Tf 438 166.5 Td (- Insert, update, and delete activity is written automatically.) Tj ET
+0.12 0.18 0.14 rg
+BT /F1 9 Tf 438 155 Td (- database_activity_log remains available after restart.) Tj ET
+0.12 0.18 0.14 rg
+BT /F1 9 Tf 438 143.5 Td (- The DB Activity tab can show an audit trail from the table.) Tj ET
+0.12 0.18 0.14 rg
+BT /F1 9 Tf 438 132 Td (- Matches: Log table + triggers + stored procedures.) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 9 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents 7 0 R >>
+endobj
+9 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R] /Count 3 >>
+endobj
+10 0 obj
+<< /Type /Catalog /Pages 9 0 R >>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000147 00000 n 
+0000005981 00000 n 
+0000006117 00000 n 
+0000011181 00000 n 
+0000011317 00000 n 
+0000015578 00000 n 
+0000015714 00000 n 
+0000015783 00000 n 
+trailer
+<< /Size 11 /Root 10 0 R >>
+startxref
+15833
+%%EOF

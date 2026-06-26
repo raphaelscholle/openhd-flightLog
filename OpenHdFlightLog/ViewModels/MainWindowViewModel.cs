@@ -28,6 +28,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public ObservableCollection<UserVariableRecord> Variables { get; } = [];
     public ObservableCollection<MavlinkMessageDefinitionRecord> Definitions { get; } = [];
     public ObservableCollection<MavlinkFieldDefinitionRecord> DefinitionFields { get; } = [];
+    public ObservableCollection<DatabaseActivityRecord> DatabaseActivity { get; } = [];
     public ObservableCollection<DebugEventRecord> DebugEvents { get; } = [];
 
     public Func<Task<string?>>? OpenLogFileRequested { get; set; }
@@ -256,6 +257,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var importer = new FlightLogImportService(Database, AddDebugEvent);
             var result = await importer.ImportLogAsync(path);
             RefreshLogs();
+            RefreshDatabaseActivity();
             SelectedLog = Logs.FirstOrDefault(log => log.Id == result.LogId);
             Status = $"{Path.GetFileName(path)} importiert: {result.MessageCount:N0} MAVLink-Nachrichten.";
         }
@@ -297,6 +299,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 SelectedLog = Logs.FirstOrDefault(log => log.Id == selectedId);
             }
 
+            RefreshDatabaseActivity();
             Status = redecoded > 0
                 ? $"{count:N0} MAVLink-Definitionen geladen und {redecoded:N0} Felder im aktuellen Log neu dekodiert."
                 : $"{count:N0} MAVLink-Definitionen aus OpenHD geladen.";
@@ -323,6 +326,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // entfernt daher automatisch die dazugehoerigen Nachrichten und Felder.
         Database.DeleteLog(SelectedLog.Id);
         RefreshLogs();
+        RefreshDatabaseActivity();
         Messages.Clear();
         Fields.Clear();
         LogVariables.Clear();
@@ -350,6 +354,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var fields = Database.RedecodeLogFields(selectedId);
             SelectedLog = null;
             SelectedLog = Logs.FirstOrDefault(log => log.Id == selectedId);
+            RefreshDatabaseActivity();
             Status = $"{fields:N0} Felder mit aktuellen MAVLink-Definitionen neu dekodiert.";
         }
         catch (Exception ex)
@@ -367,6 +372,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         Database.SaveField(SelectedField);
+        RefreshDatabaseActivity();
         Status = "Feld gespeichert.";
     }
 
@@ -382,6 +388,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var field = SelectedField;
         Database.DeleteField(field.Id);
+        RefreshDatabaseActivity();
         Fields.Remove(field);
         SelectedField = null;
         Status = "Feld geloescht.";
@@ -420,6 +427,7 @@ public partial class MainWindowViewModel : ViewModelBase
         // Datenbank-ID zurueck und wird im Objekt gespeichert.
         SelectedVariable.Id = Database.SaveVariable(SelectedVariable);
         RefreshVariables(SelectedVariable.Id);
+        RefreshDatabaseActivity();
         Status = "Variable gespeichert.";
     }
 
@@ -437,6 +445,7 @@ public partial class MainWindowViewModel : ViewModelBase
         if (variable.Id != 0)
         {
             Database.DeleteVariable(variable.Id);
+            RefreshDatabaseActivity();
         }
 
         Variables.Remove(variable);
@@ -454,6 +463,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         Database.SaveDefinition(SelectedDefinition);
         RefreshDefinitions(SelectedDefinition.Id);
+        RefreshDatabaseActivity();
         Status = "Message-Definition gespeichert.";
     }
 
@@ -469,6 +479,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var definition = SelectedDefinition;
         Database.DeleteDefinition(definition.Id);
+        RefreshDatabaseActivity();
         Definitions.Remove(definition);
         DefinitionFields.Clear();
         SelectedDefinition = null;
@@ -484,6 +495,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         Database.SaveDefinitionField(SelectedDefinitionField);
+        RefreshDatabaseActivity();
         Status = "Feld-Definition gespeichert.";
     }
 
@@ -499,6 +511,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         var field = SelectedDefinitionField;
         Database.DeleteDefinitionField(field.Id);
+        RefreshDatabaseActivity();
         DefinitionFields.Remove(field);
         SelectedDefinitionField = null;
         Status = "Feld-Definition geloescht.";
@@ -690,11 +703,40 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void RefreshDatabaseActivity()
+    {
+        DatabaseActivity.Clear();
+        if (database is null)
+        {
+            return;
+        }
+
+        foreach (var activity in Database.GetDatabaseActivity())
+        {
+            DatabaseActivity.Add(activity);
+        }
+    }
+
+    [RelayCommand]
+    private void ClearDatabaseActivity()
+    {
+        if (database is null)
+        {
+            return;
+        }
+
+        Database.ClearDatabaseActivity();
+        DatabaseActivity.Clear();
+        Status = "Datenbank-Aktivitaetslog geleert.";
+    }
+
+    [RelayCommand]
     private void RefreshAll()
     {
         RefreshLogs();
         RefreshVariables();
         RefreshDefinitions();
+        RefreshDatabaseActivity();
     }
 
     private void RefreshLogs()

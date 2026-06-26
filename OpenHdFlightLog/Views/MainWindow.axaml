@@ -437,6 +437,30 @@
                 </Grid>
             </TabItem>
 
+            <TabItem Header="DB Activity">
+                <Border Classes="panel">
+                    <DockPanel>
+                        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto,Auto" Margin="12,10" ColumnSpacing="8">
+                            <TextBlock Classes="sectionTitle" Text="Database Activity Log"/>
+                            <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshDatabaseActivityCommand}"/>
+                            <Button Grid.Column="2" Content="Clear" Command="{Binding ClearDatabaseActivityCommand}"/>
+                        </Grid>
+                        <DataGrid ItemsSource="{Binding DatabaseActivity}"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="80"/>
+                                <DataGridTextColumn Header="Time" Binding="{Binding ChangedAt}" Width="180"/>
+                                <DataGridTextColumn Header="Table" Binding="{Binding TableName}" Width="150"/>
+                                <DataGridTextColumn Header="Action" Binding="{Binding ActivityType}" Width="100"/>
+                                <DataGridTextColumn Header="Row ID" Binding="{Binding RowId}" Width="90"/>
+                                <DataGridTextColumn Header="Summary" Binding="{Binding Summary}" Width="*"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+            </TabItem>
+
             <TabItem Header="Debug">
                 <Border Classes="panel">
                     <DockPanel>

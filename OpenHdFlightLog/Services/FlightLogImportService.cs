@@ -39,7 +39,6 @@ public sealed class FlightLogImportService
                 timing,
                 messageDefinition?.Name ?? MavlinkMessageDecoder.GetMessageName(frame.MessageId),
                 messageDefinition?.Dialect ?? "",
-                RouteFor(frame.SystemId),
                 DynamicMavlinkDecoder.Decode(frame, fields ?? [])));
         }
 
@@ -55,18 +54,6 @@ public sealed class FlightLogImportService
             Detail = detail
         });
     }
-
-    private static string RouteFor(int systemId)
-    {
-        return systemId switch
-        {
-            100 => "OpenHD Ground",
-            101 => "OpenHD Air",
-            255 => "QOpenHD",
-            1 or 0 => "Flight Controller",
-            _ => $"System {systemId}"
-        };
-    }
 }
 
 public sealed record ImportedMavlinkMessage(
@@ -74,8 +61,6 @@ public sealed record ImportedMavlinkMessage(
     PacketTiming? Timing,
     string MessageName,
     string Dialect,
-    string Route,
     IReadOnlyList<DecodedField> Fields);
 
 public sealed record ImportResult(long LogId, int MessageCount, string DatabasePath);
-
